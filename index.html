@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#030a0d" />
+  <title>DEEPDIVE 深潜 · 寂静天坑事件</title>
+  <meta name="description" content="三个月前，萝拉·卡尔潜入寂静之井。昨天，她的手电还亮着。—— 洞穴潜水 · 侦探悬疑 · 心理恐怖" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23030a0d'/%3E%3Cpath d='M16 4 L20 26 L16 22 L12 26 Z' fill='%23e8a33d'/%3E%3C/svg%3E" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="scene"></canvas>
+
+    <!-- 全局氛围叠加 -->
+    <div id="vignette" class="overlay"></div>
+    <div id="grain" class="overlay"></div>
+    <div id="fade" class="overlay"></div>
+
+    <!-- 标题首屏 -->
+    <section id="title" aria-label="标题">
+      <div class="title-meta">
+        <span>案件档案 № 044</span>
+        <span>YUCATÁN · MX</span>
+      </div>
+      <div class="title-core">
+        <h1 class="brand">DEEP<span>DIVE</span></h1>
+        <div class="brand-cn" aria-hidden="true">深潜</div>
+        <p class="tagline">三个月前，萝拉·卡尔潜入「寂静之井」。<br />昨天，她的手电还亮着。</p>
+        <button id="start" type="button">
+          <em>开始下潜</em>
+          <small>建议戴上耳机 · 桌面 WASD+鼠标 / 手机 双摇杆</small>
+        </button>
+      </div>
+      <div class="title-foot">
+        <span>寂静天坑事件 · 第一章</span>
+        <span class="blink">▍REC</span>
+      </div>
+    </section>
+
+    <!-- 潜水 HUD -->
+    <section id="hud" class="hidden" aria-hidden="true">
+      <div id="o2wrap">
+        <div id="o2label">O₂</div>
+        <div id="o2gauge"><div id="o2fill"></div></div>
+        <div id="o2pct">100</div>
+      </div>
+      <div id="depthwrap">
+        <div id="depth">0.0</div>
+        <div id="depthlabel">DEPTH · M</div>
+      </div>
+      <div id="compass">CENOTE DEL SILENCIO</div>
+    </section>
+
+    <!-- 字幕 -->
+    <div id="subtitle" class="hidden"></div>
+
+    <!-- 写字板 -->
+    <section id="slate" class="hidden">
+      <div id="slate-card">
+        <div id="slate-head">潜水写字板 · 回收物证</div>
+        <div id="slate-text"></div>
+        <div id="slate-foot">按任意处继续</div>
+      </div>
+    </section>
+
+    <!-- 结局画面 -->
+    <section id="ending" class="hidden">
+      <div id="ending-quote"></div>
+      <div id="ending-stat"></div>
+      <div id="ending-brand">DEEPDIVE</div>
+      <button id="restart" type="button">重新下潜</button>
+    </section>
+
+    <!-- 移动端控制 -->
+    <div id="touch" class="hidden">
+      <div id="stick"><div id="stick-nub"></div></div>
+    </div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
