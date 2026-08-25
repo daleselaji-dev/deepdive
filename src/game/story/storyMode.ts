@@ -224,6 +224,15 @@ export class StoryMode implements GameMode {
 
   debugScare() { this.beginScare(); }
 
+  /** 按 id 收录线索（e2e 用：绕过距离/朝向判定，走同一条收录代码路径）。 */
+  debugCollect(id: string): boolean {
+    const it = this.cave.interactables.find((i) => i.id === id);
+    if (!it || it.used) return false;
+    it.used = true;
+    this.collectClue(it);
+    return true;
+  }
+
   /** 运行时可热切换的画质项（粒子数 / 体积光 / 洞壁细节；后处理由 PostFX 处理）。 */
   applyQuality(q: import('../../core/quality').QualitySettings) {
     this.silt.points.geometry.setDrawRange(0, q.siltCount);

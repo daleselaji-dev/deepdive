@@ -83,6 +83,7 @@ export class Game {
         awe: () => this.story.debugAwe(),
         redroom: () => this.story.debugRedRoom(),
         scare: () => this.story.debugScare(),
+        collect: (id: string) => this.story.debugCollect(id),
         sm: () => this.story,
         speed: (x: number) => { this.timeScale = x; },
       };

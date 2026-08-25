@@ -28,7 +28,7 @@ page.on('console', (m) => { if (m.type() === 'error') console.log('[page]', m.te
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
 
 const shot = async (name) => {
-  await page.screenshot({ path: `${OUT}/${name}.png` });
+  await page.screenshot({ path: `${OUT}/${name}.jpg`, type: 'jpeg', quality: 84 });
   console.log('shot:', name);
 };
 const dd = (expr) => page.evaluate(expr);
@@ -49,6 +49,13 @@ try {
   await wait(4200); await shot('04c_shadow_pass');
   await dd('window.__dd.teleport(0.60)'); await wait(2600); await shot('05_glow_gallery');
   await dd('window.__dd.teleport(0.68)'); await wait(2600); await shot('05b_dark_zone');
+
+  // 案件档案（先收录三条）
+  await dd(`window.__dd.collect('tag')`);
+  await dd(`window.__dd.collect('computer')`);
+  await dd(`window.__dd.collect('airdome')`);
+  await page.keyboard.press('Tab'); await wait(700); await shot('09_journal');
+  await page.keyboard.press('Tab'); await wait(400);
 
   await dd('window.__dd.face()'); await wait(400); await shot('06_scare_face');
   await dd('window.__dd.teleport(0.86)');

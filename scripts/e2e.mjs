@@ -56,6 +56,37 @@ try {
   const t1 = await evalJs('window.__dd.sm().progressT');
   await check('swim_forward', t1 > t0);
 
+  // 线索收集 → 档案计数 / 补氧决策
+  await check('collect_tag', await evalJs(`window.__dd.collect('tag')`));
+  await check('collect_recorder', await evalJs(`window.__dd.collect('recorder')`));
+  await check('collect_tanks', await evalJs(`window.__dd.collect('tanks')`));
+  await check('collect_dedupe', !(await evalJs(`window.__dd.collect('tag')`)));
+  await check('clue_count_3', (await evalJs('window.__dd.sm().clueCount')) === 3);
+  await check('o2_bonus', (await evalJs('window.__dd.sm().o2Bonus')) === 300);
+  await check('clue_total_8', (await evalJs('window.__dd.sm().cave.interactables.length')) === 8);
+
+  // 案件档案 Tab 开关
+  await page.keyboard.press('Tab');
+  await page.waitForTimeout(400);
+  await check('journal_open',
+    await evalJs(`document.getElementById('journal').style.display === 'flex'`));
+  await check('journal_entries',
+    (await evalJs(`document.querySelectorAll('#journal .j-item').length`)) === 8);
+  await page.keyboard.press('Tab');
+  await page.waitForTimeout(400);
+  await check('journal_close',
+    await evalJs(`document.getElementById('journal').style.display === 'none'`));
+
+  // 手电电量在消耗
+  const b0 = await evalJs('window.__dd.sm().battery');
+  await page.waitForTimeout(2500);
+  const b1 = await evalJs('window.__dd.sm().battery');
+  await check('battery_drain', b1 < b0);
+
+  // 鱼群风暴触发（穹顶大厅中心）
+  await evalJs('window.__dd.teleport(0.405)');
+  await waitFor('fish_scattered', `window.__dd.sm().spectacle.fishScattered === true`, 15);
+
   // 逐段传送触发节拍
   for (const t of [0.14, 0.31, 0.47, 0.56, 0.65]) {
     await evalJs(`window.__dd.teleport(${t})`);
