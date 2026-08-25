@@ -40,11 +40,11 @@ function skinMaterial(): THREE.ShaderMaterial {
         float wrap = ndl * 0.5 + 0.5;
         float dist = length(vP);
         float atten = clamp(uLamp * 12.0 / (1.0 + dist * dist * 0.09), 0.0, 0.9);
-        atten = max(atten, uGlow * 0.32);
+        atten = max(atten, uGlow * 0.2);
         vec3 base = uColor * (0.02 + 0.98 * wrap * wrap * wrap) * atten;
         float fres = pow(1.0 - abs(dot(n, vd)), 2.2);
-        vec3 rim = uRimColor * fres * (0.3 * atten + uGlow * (2.2 + 0.5 * sin(uTime * 1.7)));
-        vec3 glow = uRimColor * uGlow * 0.16 * (0.8 + 0.2 * sin(uTime * 0.9 + vP.y));
+        vec3 rim = uRimColor * fres * (0.3 * atten + uGlow * (1.5 + 0.4 * sin(uTime * 1.7)));
+        vec3 glow = uRimColor * uGlow * 0.1 * (0.8 + 0.2 * sin(uTime * 0.9 + vP.y));
         gl_FragColor = vec4(base + rim + glow, 1.0);
       }
     `,

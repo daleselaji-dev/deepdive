@@ -131,6 +131,7 @@ export class Input {
     const downBtn = mkBtn('t-down', '▼');
     const lampBtn = mkBtn('t-lamp', '灯');
     const pauseBtn = mkBtn('t-pause', 'Ⅱ');
+    const journalBtn = mkBtn('t-journal', '记');
     const interactBtn = mkBtn('t-interact', '查看');
     interactBtn.style.display = 'none';
     this.interactBtn = interactBtn;
@@ -147,6 +148,7 @@ export class Input {
     };
     tap(lampBtn, 'KeyF');
     tap(pauseBtn, 'Escape');
+    tap(journalBtn, 'KeyN');
     tap(interactBtn, 'KeyE');
 
     // 摇杆 + 视角拖动（绑在 canvas 上，按左右半屏区分）

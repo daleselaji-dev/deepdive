@@ -98,12 +98,14 @@ function injectRockShader(mat: THREE.MeshStandardMaterial, u: RockUniforms) {
         attribute float aWet;
         attribute float aGlow;
         varying vec3 vRockWP;
+        varying vec3 vRockWN;
         varying float vWet;
         varying float vGlow;
       `)
       .replace('#include <begin_vertex>', /* glsl */ `
         #include <begin_vertex>
         vRockWP = (modelMatrix * vec4(position, 1.0)).xyz;
+        vRockWN = normalize(mat3(modelMatrix) * normal);
         vWet = aWet;
         vGlow = aGlow;
       `);
@@ -116,6 +118,7 @@ function injectRockShader(mat: THREE.MeshStandardMaterial, u: RockUniforms) {
         uniform float uGlowBoost;
         uniform vec3 uShaftPos;
         varying vec3 vRockWP;
+        varying vec3 vRockWN;
         varying float vWet;
         varying float vGlow;
 
@@ -182,7 +185,7 @@ function injectRockShader(mat: THREE.MeshStandardMaterial, u: RockUniforms) {
                           * smoothstep(uShaftPos.y - 1.0, uShaftPos.y - 14.0, vRockWP.y);
           float depthFade = max(entranceFade, shaftFade * 0.8);
           if (depthFade > 0.002) {
-            float nUp = clamp(normal.y, 0.0, 1.0);
+            float nUp = clamp(normalize(vRockWN).y, 0.0, 1.0);
             float upFace = nUp * nUp * 0.95;
             float ca = causticPattern(vRockWP.xz * 0.85, uTime * 0.42);
             totalEmissiveRadiance += vec3(0.45, 0.85, 0.95) * ca * depthFade * upFace * 0.12;
@@ -226,6 +229,7 @@ export class CaveSystem {
   private ledMat: THREE.MeshStandardMaterial;
   private danglingLine: THREE.Mesh | null = null;
   private surfaceMat: THREE.ShaderMaterial | null = null;
+  private spinProps: THREE.Object3D[] = [];
 
   constructor(quality: QualitySettings, seed = 20260825) {
     this.noise = new Simplex3(seed);
@@ -522,7 +526,7 @@ export class CaveSystem {
     beam.position.copy(this.shaftTop);
     beam.rotateX(-Math.PI / 2);
     this.group.add(beam);
-    const core = makeLightCone({ length: len * 0.92, radius: 1.1, color: 0xcdeef8, intensity: 0.12 });
+    const core = makeLightCone({ length: len * 0.92, radius: 1.1, color: 0xcdeef8, intensity: 0.17 });
     core.position.copy(this.shaftTop);
     core.rotateX(-Math.PI / 2);
     this.group.add(core);
@@ -737,6 +741,134 @@ export class CaveSystem {
         note: ['割断的主线绳', '断口平整。自愿割断。他不打算回去。'],
       });
     }
+    // 线索4：漂浮的脚蹼（钟厅顶部石缝）
+    {
+      const p = this.wallPoint(0.335, Math.PI, 0.8);
+      const fin = new THREE.Group();
+      const rubber = new THREE.MeshStandardMaterial({ color: 0x16181c, roughness: 0.55 });
+      const accent = new THREE.MeshStandardMaterial({ color: 0x9a8018, roughness: 0.5, emissive: 0x3d3206, emissiveIntensity: 0.3 });
+      const pocket = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.05, 0.16), rubber);
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.012, 0.4), accent);
+      blade.position.z = -0.26;
+      fin.add(pocket, blade);
+      fin.position.copy(p);
+      fin.rotation.set(0.5, 1.1, 0.3);
+      this.group.add(fin);
+      this.spinProps.push(fin);
+      this.interactables.push({
+        id: 'fin', pos: p.clone(), radius: 2.2, used: false,
+        prompt: '查看脚蹼',
+        lines: [
+          '一只脚蹼，卡在石缝里，随水流慢慢转。',
+          '型号：**Marlin XR-4**。和委托人给的装备清单对得上。',
+          '只有一只。人不会自己脱掉一只脚蹼。',
+        ],
+        note: ['漂浮的脚蹼', 'Marlin XR-4，与埃利亚斯装备清单吻合。只有一只。'],
+      });
+    }
+    // 线索5：备用气瓶（钟厅地面，可取用氧气）
+    {
+      const p = this.wallPoint(0.445, 0.35, 0.82);
+      const tank = new THREE.Group();
+      const alu = new THREE.MeshStandardMaterial({ color: 0xc8cdd2, roughness: 0.35, metalness: 0.75 });
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.095, 0.095, 0.58, 18), alu);
+      const valve = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.09, 10),
+        new THREE.MeshStandardMaterial({ color: 0x35414a, roughness: 0.4, metalness: 0.8 }));
+      valve.position.y = 0.33;
+      const knob = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.012, 8, 18),
+        new THREE.MeshStandardMaterial({ color: 0x7a1f1a, roughness: 0.5 }));
+      knob.position.y = 0.37;
+      knob.rotation.x = Math.PI / 2;
+      tank.add(body, valve, knob);
+      tank.position.copy(p);
+      tank.rotation.set(0.2, 0.7, 1.35); // 侧躺
+      this.group.add(tank);
+      this.interactables.push({
+        id: 'stage', pos: p.clone(), radius: 2.2, used: false,
+        prompt: '检查气瓶阀门',
+        effect: 'o2',
+        lines: [
+          '一支侧挂瓶，铝壳上刻着 **E.V.**。他按规程放的接力瓶——回程用的气。',
+          '残压表：**450 psi**。我把它接上了备用接口。（氧气 +450）',
+          '他没回来取。这瓶气等了他十九天。',
+        ],
+        note: ['埃利亚斯的接力瓶', '回程气还在原地。氧气 +450 psi。他没走到这一步。'],
+      });
+    }
+    // 线索6：岩壁刻痕（断线之后）
+    {
+      const p = this.wallPoint(0.585, 4.2, 0.9);
+      const s = this.sampleAtT(0.585);
+      const markMat = new THREE.MeshStandardMaterial({ color: 0xd8cfc0, roughness: 0.6 });
+      const marks = new THREE.Group();
+      for (let i = 0; i < 3; i++) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.34, 0.012), markMat);
+        m.position.set((i - 1) * 0.09, 0, 0);
+        m.rotation.z = 0.15 + (i - 1) * 0.06;
+        marks.add(m);
+      }
+      marks.position.copy(p);
+      marks.lookAt(s.pos);
+      this.group.add(marks);
+      this.interactables.push({
+        id: 'marks', pos: p.clone(), radius: 2.0, used: false,
+        prompt: '查看刻痕',
+        lines: [
+          '三道刻痕，露出岩石里新鲜的白。是潜水刀刻的。',
+          '不是箭头，不是编号。只是三道。像在数什么。',
+          '刻痕的方向——**指向下**。谁会往下指？',
+        ],
+        note: ['三道刻痕', '新鲜的刀刻，指向下。在数什么？还是在给谁指路？'],
+      });
+    }
+    // 线索7：水螅体群（发光廊道·触摸激发大波光）
+    {
+      const p = this.wallPoint(0.622, 3.9, 0.9);
+      const cluster = new THREE.Group();
+      const polypMat = new THREE.MeshStandardMaterial({
+        color: 0x0a2a30, roughness: 0.4,
+        emissive: 0x2fd8ff, emissiveIntensity: 1.4,
+      });
+      for (let i = 0; i < 7; i++) {
+        const b = new THREE.Mesh(new THREE.SphereGeometry(0.028 + Math.random() * 0.03, 10, 8), polypMat);
+        b.position.set((Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.12);
+        cluster.add(b);
+      }
+      const gl = makeGlowSprite(0x63e0ff, 0.9, 0.35);
+      cluster.add(gl);
+      cluster.position.copy(p);
+      this.group.add(cluster);
+      this.interactables.push({
+        id: 'polyp', pos: p.clone(), radius: 2.0, used: false,
+        prompt: '触碰发光的水螅体',
+        effect: 'polypWave',
+        lines: [
+          '指尖刚碰到，它们就缩了回去——然后整面墙**亮**了。',
+          '一圈光沿着洞壁荡开，像我往一口黑井里投了块石头。',
+          '生物学不管这个叫语言。可它确实在回答我。',
+        ],
+        note: ['发光水螅体', '触碰会激起整条廊道的光波。它们对来客有反应。'],
+      });
+    }
+    // 线索8：潜水写字板（廊道尽头）
+    {
+      const p = this.wallPoint(0.667, 0.4, 0.86);
+      const slate = this.textPlate('别关灯', 0.3, 0.2, '#c9c2ae', '#2a2622');
+      slate.position.copy(p).add(new THREE.Vector3(0, 0.06, 0));
+      const s = this.sampleAtT(0.667);
+      slate.rotation.set(-1.1, Math.atan2(s.tangent.x, s.tangent.z), 0.35);
+      this.group.add(slate);
+      this.interactables.push({
+        id: 'slate', pos: p.clone(), radius: 2.0, used: false,
+        prompt: '查看写字板',
+        lines: [
+          '潜水写字板，铝框。塑料面上三个字，划得太用力，穿透了板面——',
+          '**「别关灯」**',
+          '这里的生物在黑暗里发光。他到底看见了什么，才写下这三个字？',
+        ],
+        note: ['写字板：「别关灯」', '刻穿板面的字。在一条越黑越亮的廊道尽头。'],
+      });
+    }
   }
 
   /** LED 呼吸闪烁 / 岩石 uniforms / 水面波动。 */
@@ -751,5 +883,9 @@ export class CaveSystem {
     // 关灯 → 生物膜更亮（暗适应）
     this.rockUniforms.uGlowBoost.value = 1 + (1 - lampEffective) * 1.6;
     if (this.surfaceMat) this.surfaceMat.uniforms.uTime.value = time;
+    for (let i = 0; i < this.spinProps.length; i++) {
+      this.spinProps[i].rotation.y += 0.0016;
+      this.spinProps[i].rotation.z = 0.3 + Math.sin(time * 0.4 + i) * 0.1;
+    }
   }
 }

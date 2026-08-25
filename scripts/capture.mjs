@@ -56,6 +56,9 @@ try {
   await dd('window.__dd.awe()'); await wait(3500); await shot('08_awe_creature');
 
   await dd('window.__dd.redroom()'); await wait(5000); await shot('09_redroom');
+  await dd('window.__dd.sm().redroom.startDroplets()');
+  await page.keyboard.down('w'); await wait(3000); await page.keyboard.up('w');
+  await wait(2500); await shot('10_redroom_droplets');
   await dd('window.__dd.teleport ? 0 : 0');
 } catch (e) {
   console.error('capture failed:', e);

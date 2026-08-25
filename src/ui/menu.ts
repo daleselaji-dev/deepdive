@@ -39,8 +39,9 @@ export class Menu {
             <span>游动</span><span>W A S D / 左摇杆</span>
             <span>视角</span><span>鼠标 / 右侧拖动</span>
             <span>上浮 / 下潜</span><span>Space / Shift（触屏 ▲▼）</span>
-            <span>手电</span><span>F（触屏「灯」）</span>
+            <span>手电</span><span>F（触屏「灯」）· 有电量，黑暗处可省电</span>
             <span>查看线索</span><span>E（触屏「查看」）</span>
+            <span>侦探笔记</span><span>N（触屏「记」）· 图鉴 8 条线索</span>
             <span>暂停</span><span>Esc（触屏「Ⅱ」）</span>
           </div>
           <div class="help-note">跟着线绳走。线绳是回家的路。</div>

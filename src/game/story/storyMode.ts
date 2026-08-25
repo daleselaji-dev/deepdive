@@ -64,6 +64,8 @@ export class StoryMode implements GameMode {
   private lampDim = 1;
   private flickerLeft = 0;
   private lampEffective = 1;
+  private battery = 1;
+  private battWarned = 0;
   private spotBase = 60;
   private fillBase = 2.5;
   private spot!: THREE.SpotLight;
@@ -255,6 +257,8 @@ export class StoryMode implements GameMode {
   beginPlay() {
     this.idle = false;
     this.phase = 'explore';
+    this.ctx.hud.setNoteTotal(this.cave.interactables.length);
+    this.ctx.hud.resetNotes();
     this.ctx.audio.setBreathing(true);
     this.ctx.audio.setDrone(0.25);
   }
@@ -455,6 +459,20 @@ export class StoryMode implements GameMode {
       this.lampOn = !this.lampOn;
       this.ctx.audio.tick(0.12);
     }
+    // 灯电量博弈：探索阶段开灯耗电（黑暗廊道里"省电"是有意义的选择）
+    if (this.phase === 'explore' && this.lampOn && !this.lampForcedOff) {
+      this.battery = Math.max(0, this.battery - dt / 560);
+      if (this.battery < 0.35 && this.battWarned < 1) {
+        this.battWarned = 1;
+        this.flickerLeft = 1.1;
+        this.ctx.hud.subtitle('手电在抱怨了。电量剩三分之一——黑暗开始有了利息。', 6);
+      } else if (this.battery < 0.12 && this.battWarned < 2) {
+        this.battWarned = 2;
+        this.flickerLeft = 1.6;
+        this.ctx.hud.subtitle('灯芯发红。剩下的黑，比剩下的电多。', 6);
+      }
+    }
+    const battDim = this.battery <= 0 ? 0.26 : this.battery < 0.12 ? 0.26 + (this.battery / 0.12) * 0.74 : 1;
     let f = this.lampOn && !this.lampForcedOff ? 1 : 0;
     if (this.flickerLeft > 0 && f > 0) {
       this.flickerLeft -= dt;
@@ -462,7 +480,7 @@ export class StoryMode implements GameMode {
       f = g > -0.35 ? 1 : 0.12;
       if (Math.random() < dt * 6) this.ctx.audio.tick(0.05);
     }
-    f *= this.lampDim;
+    f *= this.lampDim * battDim;
     this.lampEffective = damp(this.lampEffective, f, 18, dt);
     this.spot.intensity = this.spotBase * this.lampEffective;
     this.fill.intensity = this.fillBase * Math.max(this.lampEffective, 0.12);
@@ -486,6 +504,7 @@ export class StoryMode implements GameMode {
   private updateHud() {
     const hud = this.ctx.hud;
     hud.setO2(this.o2, MAX_O2);
+    hud.setBattery(this.battery);
     hud.setDepth(-this.pos.y);
   }
 
@@ -537,6 +556,7 @@ export class StoryMode implements GameMode {
           hud.subtitle(line, Math.max(3.4, line.length * 0.14));
         }
         if (found.id === 'cutline') this.ctx.audio.setTension(0.55);
+        hud.addNote(found.note[0], found.note[1]);
         // 玩法效果
         if (found.effect === 'o2') {
           this.o2Bonus += 450;
@@ -724,7 +744,7 @@ export class StoryMode implements GameMode {
 
   private enterRedRoom() {
     this.phase = 'redroom';
-    this.redroom = new RedRoom();
+    this.redroom = new RedRoom(this.ctx.quality.dropletCount);
     this.pos.set(0, 1.7, 7.5);
     this.vel.set(0, 0, 0);
     this.yaw = 0; // 面向 -z 的身影
@@ -781,6 +801,8 @@ export class StoryMode implements GameMode {
       const [, who, text] = REDROOM_DIALOGUE[this.dlgIdx];
       this.ctx.hud.subtitle(text, 6, who === 'figure' ? 'creature' : '');
       if (this.dlgIdx === 2) this.redroom!.turnTo(1);
+      // 「你带来了水」→ 逆浮水珠（奇观 4）
+      if (this.dlgIdx === 3) this.redroom!.startDroplets();
       this.dlgIdx++;
       if (this.dlgIdx >= REDROOM_DIALOGUE.length) this.finalT = 0;
     }

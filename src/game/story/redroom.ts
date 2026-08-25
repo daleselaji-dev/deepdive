@@ -87,8 +87,11 @@ export class RedRoom {
   private turnAmount = 0;
   private turnTarget = 0;
   private spot: THREE.SpotLight;
+  private figureMirror: THREE.Group;
+  private dropletMat: THREE.ShaderMaterial | null = null;
+  private dropletTarget = 0;
 
-  constructor() {
+  constructor(dropletCount = 200) {
     this.scene.fog = new THREE.FogExp2(0x0a0002, 0.052);
     this.scene.background = new THREE.Color(0x0a0002);
 
@@ -139,11 +142,92 @@ export class RedRoom {
     gl.position.set(this.figurePos.x, 0.05, this.figurePos.z);
     this.scene.add(gl);
 
+    // 身影红色轮廓背光（让黑西装从黑幕里剥离出来）
+    const rim = new THREE.PointLight(0xff3526, 14, 12, 1.6);
+    rim.position.set(this.figurePos.x - 1.2, 2.4, this.figurePos.z - 2.8);
+    this.scene.add(rim);
+    const rim2 = new THREE.PointLight(0x8a1a48, 8, 10, 1.7);
+    rim2.position.set(this.figurePos.x + 2.2, 1.4, this.figurePos.z - 1.6);
+    this.scene.add(rim2);
+
     this.head = this.buildFigure();
     this.figure.position.copy(this.figurePos);
     this.figure.rotation.y = Math.PI; // 背对入口（入口在 +z）
     this.scene.add(this.figure);
+
+    // 镜面倒影（地板半透明 → 隐约可见）
+    this.figureMirror = this.figure.clone(true);
+    this.figureMirror.scale.y = -1;
+    this.scene.add(this.figureMirror);
+
+    this.buildDroplets(dropletCount);
   }
+
+  /**
+   * 奇观 4：逆浮水珠。
+   * 「你带来了水」——数百颗水珠无视重力，从地板缓缓向上坠落。
+   */
+  private buildDroplets(count: number) {
+    const pos = new Float32Array(count * 3);
+    const seed = new Float32Array(count);
+    for (let i = 0; i < count; i++) {
+      const r = 2 + Math.random() * 9.5;
+      const a = Math.random() * Math.PI * 2;
+      pos[i * 3] = Math.cos(a) * r;
+      pos[i * 3 + 1] = Math.random() * 6.5;
+      pos[i * 3 + 2] = Math.sin(a) * r;
+      seed[i] = Math.random() * 100;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
+    this.dropletMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: {
+        uTime: { value: 0 },
+        uRise: { value: 0 },
+      },
+      vertexShader: /* glsl */ `
+        uniform float uTime, uRise;
+        attribute float aSeed;
+        varying float vI;
+        void main() {
+          vec3 p = position;
+          float spd = 0.10 + fract(aSeed * 3.17) * 0.22;
+          p.y = mod(p.y + uTime * spd, 6.8) + 0.12;
+          p.x += sin(uTime * 0.45 + aSeed) * 0.22;
+          p.z += cos(uTime * 0.38 + aSeed * 1.7) * 0.22;
+          vec4 mv = modelViewMatrix * vec4(p, 1.0);
+          float d = max(0.5, -mv.z);
+          float tw = 0.45 + 0.55 * (0.5 + 0.5 * sin(uTime * (1.1 + fract(aSeed * 5.1)) + aSeed));
+          vI = tw * uRise * smoothstep(0.4, 1.3, d);
+          gl_PointSize = min((2.2 + fract(aSeed * 7.7) * 3.4) * 16.0 / d, 26.0);
+          gl_Position = projectionMatrix * mv;
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        varying float vI;
+        void main() {
+          vec2 c = gl_PointCoord - 0.5;
+          float r = length(c);
+          if (r > 0.5) discard;
+          float core = smoothstep(0.5, 0.1, r);
+          float spec = smoothstep(0.22, 0.0, length(c - vec2(-0.12, -0.14)));
+          vec3 col = vec3(1.0, 0.42, 0.38) * core + vec3(1.0, 0.9, 0.85) * spec;
+          gl_FragColor = vec4(col * vI, core * vI);
+        }
+      `,
+    });
+    const points = new THREE.Points(geo, this.dropletMat);
+    points.frustumCulled = false;
+    points.renderOrder = 6;
+    this.scene.add(points);
+  }
+
+  /** 触发逆浮水珠（随对白「你带来了水」）。 */
+  startDroplets() { this.dropletTarget = 1; }
 
   private buildFigure(): THREE.Group {
     const suit = new THREE.MeshStandardMaterial({ color: 0x101014, roughness: 0.42, metalness: 0.4 });
@@ -198,5 +282,14 @@ export class RedRoom {
     this.figure.rotation.y = Math.PI * (1 - this.turnAmount);
     this.head.rotation.y = Math.sin(time * 0.4) * 0.04;
     this.figure.position.y = Math.sin(time * 0.7) * 0.012;
+    // 镜像同步
+    this.figureMirror.position.set(
+      this.figure.position.x, -this.figure.position.y, this.figure.position.z);
+    this.figureMirror.rotation.y = this.figure.rotation.y;
+    if (this.dropletMat) {
+      this.dropletMat.uniforms.uTime.value = time;
+      const cur = this.dropletMat.uniforms.uRise.value as number;
+      this.dropletMat.uniforms.uRise.value = cur + (this.dropletTarget - cur) * Math.min(1, dt * 0.35);
+    }
   }
 }

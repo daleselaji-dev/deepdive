@@ -193,13 +193,26 @@ html, body {
   left: max(18px, env(safe-area-inset-left));
   bottom: max(18px, env(safe-area-inset-bottom));
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 12px;
   background: rgba(2, 8, 10, 0.4);
   border: 1px solid rgba(158, 184, 176, 0.25);
   padding: 10px 12px;
   backdrop-filter: blur(2px);
+}
+.gauge-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.batt-bar { width: 7px; }
+.batt-fill {
+  width: 100%;
+  height: 100%;
+  background: #9fb8a8;
+  transition: height 0.3s ease, background 0.6s ease;
 }
 .o2-label { font-size: 11px; letter-spacing: 0.2em; color: #8fa79f; }
 .o2-bar {
@@ -305,6 +318,87 @@ html, body {
   margin: -1.5px;
   border-radius: 50%;
   background: rgba(210, 225, 220, 0.55);
+}
+
+/* ---------- 笔记收录提示 ---------- */
+.note-toast {
+  position: absolute;
+  top: max(58px, calc(env(safe-area-inset-top) + 38px));
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  color: #cfc9b0;
+  background: rgba(8, 14, 12, 0.55);
+  border: 1px solid rgba(207, 201, 176, 0.3);
+  padding: 6px 16px;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+.note-toast.show { opacity: 1; }
+
+/* ---------- 侦探笔记 ---------- */
+#journal {
+  position: fixed; inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 46;
+  background: rgba(0, 0, 0, 0.78);
+}
+.journal-inner {
+  width: min(620px, 92vw);
+  max-height: 84vh;
+  overflow-y: auto;
+  background: rgba(12, 14, 12, 0.92);
+  border: 1px solid rgba(207, 201, 176, 0.35);
+  padding: 26px 30px;
+  color: #cfc9b0;
+}
+.journal-title {
+  text-align: center;
+  letter-spacing: 0.5em;
+  margin-right: -0.5em;
+  font-size: 19px;
+  margin-bottom: 6px;
+}
+.journal-count {
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: #8fa79f;
+  margin-bottom: 18px;
+}
+.journal-item {
+  border-top: 1px solid rgba(207, 201, 176, 0.16);
+  padding: 12px 2px;
+}
+.journal-item-title {
+  font-size: 15px;
+  color: #dfe8e4;
+  letter-spacing: 0.12em;
+  margin-bottom: 5px;
+}
+.journal-item-body {
+  font-size: 13px;
+  line-height: 1.9;
+  color: #9aa8a2;
+  letter-spacing: 0.08em;
+}
+.journal-empty {
+  text-align: center;
+  font-size: 13px;
+  color: #64756f;
+  font-style: italic;
+  padding: 14px 0;
+  letter-spacing: 0.15em;
+}
+.journal-hint {
+  text-align: center;
+  margin-top: 16px;
+  font-size: 11px;
+  color: #4c5a55;
+  letter-spacing: 0.3em;
 }
 
 /* ---------- 介绍卡 ---------- */
@@ -413,6 +507,12 @@ html, body {
   right: 14px;
   width: 44px; height: 44px;
   font-size: 14px;
+}
+.t-journal {
+  top: max(14px, env(safe-area-inset-top));
+  right: 70px;
+  width: 44px; height: 44px;
+  font-size: 15px;
 }
 .t-interact {
   right: 24px;

@@ -10,7 +10,7 @@ import { StoryMode } from './story/storyMode';
 import type { GameContext } from './modes';
 import { INTRO_CARDS } from './story/script';
 
-type State = 'menu' | 'intro' | 'playing' | 'paused';
+type State = 'menu' | 'intro' | 'playing' | 'paused' | 'journal';
 
 export class Game {
   private renderer: THREE.WebGLRenderer;
@@ -194,15 +194,37 @@ export class Game {
     this.post.setSize(w, h, this.renderer.getPixelRatio());
   }
 
+  private openJournal() {
+    if (this.state !== 'playing') return;
+    this.state = 'journal';
+    this.hud.showJournal(true);
+    this.input.exitPointerLock();
+    this.audio.uiClick();
+  }
+
+  private closeJournal() {
+    if (this.state !== 'journal') return;
+    this.state = 'playing';
+    this.hud.showJournal(false);
+    this.input.requestPointerLock();
+    this.audio.uiClick();
+  }
+
   private frame() {
     const dt = Math.min(0.05, this.clock.getDelta()) * this.timeScale;
     this.time += dt;
     this.input.poll();
 
+    if (this.state === 'playing' && this.input.consumePressed('KeyN')) {
+      this.openJournal();
+    } else if (this.state === 'journal' &&
+      (this.input.consumePressed('KeyN') || this.input.consumePressed('Escape'))) {
+      this.closeJournal();
+    }
     if (this.state === 'playing' && this.input.consumePressed('Escape')) {
       this.pause();
     }
-    if (this.state !== 'paused') {
+    if (this.state !== 'paused' && this.state !== 'journal') {
       this.story.update(dt);
     }
     this.hud.update(dt);
