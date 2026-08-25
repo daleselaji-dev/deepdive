@@ -1,0 +1,20 @@
+{
+  "name": "deepdive",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "DEEP DIVE ·《蓝井》— 浏览器可玩的第一人称洞潜叙事恐怖游戏",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.4",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  }
+}
