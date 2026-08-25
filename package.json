@@ -18,6 +18,7 @@
     "three": "^0.168.0"
   },
   "devDependencies": {
+    "@gltf-transform/cli": "^4.4.2",
     "@types/three": "^0.168.0",
     "concurrently": "^10.0.5",
     "cross-env": "^10.1.0",

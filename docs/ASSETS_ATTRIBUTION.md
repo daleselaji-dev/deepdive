@@ -8,7 +8,11 @@
 
 | 文件 | 内容 | 作者 / 版权 | 授权 | 来源 | 本仓库改动 |
 |---|---|---|---|---|---|
-| （Loop1 执行后登记） | | | | | |
+| `src/assets/models/barramundi.glb` | 尖吻鲈（Barramundi Fish）PBR 模型——用作银汉鱼群 / 盲眼洞鱼 / 巡游大鱼的共用几何 | © 2017, Public（Microsoft 制作并捐赠，标注 "Microsoft for Everything"） | **CC0 1.0 Universal**（公有领域） | [Khronos glTF-Sample-Assets · BarramundiFish](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/BarramundiFish)（镜像清单见 `scripts/fetch-assets.cjs`） | 贴图缩尺至 256px 并转 WebP、几何保持原拓扑（12.49MB → 160KB）；运行时按用途调色（银青群体色 / 无色素苍白 / 深水压暗） |
+
+**说明**：曾评估 poly.pizza（Quaternius / Google Poly 镜像）的海龟等 CC0/CC-BY 模型，
+但该站为 JS 动态渲染、无稳定直链，不满足「镜像可复现下载」要求，故未采用；
+其余生物（水母 / 奇虾 / 潜水员 NPC）为程序化建模，无外部来源。
 
 ## 2. 其余资产
 

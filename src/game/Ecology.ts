@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 import type { QualityProfile } from './quality';
 import type { Cave } from './Cave';
+import type { Models, MeshAsset } from './Models';
 import { particleSprite, bubbleSprite } from './textures';
 
 /**
  * 可交互洞穴生态（docs/GAME_DESIGN.md §5）：
- * - 银汉鱼群：天光井光柱绕游，玩家靠近惊散。
+ * - 银汉鱼群：天光井光柱绕游，玩家靠近惊散。真实拓扑鱼模型实例（Models.ts）。
+ * - 巡游大鱼：光之厅/沉船厅独游的大个体，怕光缓慢避让。
  * - 盲眼洞鱼：贴壁游弋，被手电长照会缓慢趋光（细思恐）。
  * - 浮游发光体：快速游过时脉冲蓝光尾迹。
  * - 深渊水母群：缓慢升降，靠近时收缩闪光并避让。
@@ -19,6 +21,16 @@ interface Fish {
   speed: number;
   bobPhase: number;
   scatter: THREE.Vector3;
+  len: number;
+}
+
+interface Cruiser {
+  pos: THREE.Vector3;
+  home: THREE.Vector3;
+  phase: number;
+  len: number;
+  wanderR: number;
+  avoid: THREE.Vector3;
 }
 
 interface Jelly {
@@ -34,12 +46,16 @@ interface Jelly {
 export class Ecology {
   readonly group = new THREE.Group();
 
-  private fishMesh: THREE.InstancedMesh;
+  private fishMesh: THREE.InstancedMesh | null = null;
   private fish: Fish[] = [];
   private fishCenter: THREE.Vector3;
+  private fishSource: 'pending' | 'gltf' | 'procedural' = 'pending';
 
-  private blindMesh: THREE.InstancedMesh;
+  private blindMesh: THREE.InstancedMesh | null = null;
   private blind: { pos: THREE.Vector3; home: THREE.Vector3; phase: number }[] = [];
+
+  private cruiserMesh: THREE.InstancedMesh | null = null;
+  private cruisers: Cruiser[] = [];
 
   private plankton: THREE.Points;
   private pkPos: Float32Array;
@@ -51,21 +67,11 @@ export class Ecology {
 
   private dummy = new THREE.Object3D();
 
-  constructor(q: QualityProfile, cave: Cave, scene: THREE.Scene) {
+  constructor(q: QualityProfile, cave: Cave, scene: THREE.Scene, models: Models) {
     scene.add(this.group);
     this.fishCenter = new THREE.Vector3(cave.poolCenter.x, -6, cave.poolCenter.z);
 
-    // ---------- 银汉鱼群 ----------
-    const fishGeo = new THREE.ConeGeometry(0.05, 0.3, 5);
-    fishGeo.rotateX(Math.PI / 2); // 尖端朝 +Z（前进方向）
-    fishGeo.scale(0.6, 1.3, 1);
-    const fishMat = new THREE.MeshStandardMaterial({
-      color: 0xb8c8c2,
-      metalness: 0.65,
-      roughness: 0.3,
-      emissive: 0x1c2a28,
-    });
-    this.fishMesh = new THREE.InstancedMesh(fishGeo, fishMat, q.fish);
+    // ---------- 银汉鱼群（行为数据先建，网格待模型解码后挂载） ----------
     for (let i = 0; i < q.fish; i++) {
       this.fish.push({
         ang: Math.random() * Math.PI * 2,
@@ -74,21 +80,12 @@ export class Ecology {
         speed: 0.35 + Math.random() * 0.4,
         bobPhase: Math.random() * Math.PI * 2,
         scatter: new THREE.Vector3(),
+        len: 0.24 + Math.random() * 0.14,
       });
     }
-    this.group.add(this.fishMesh);
 
     // ---------- 盲眼洞鱼 ----------
-    const blindGeo = new THREE.ConeGeometry(0.035, 0.2, 5);
-    blindGeo.rotateX(Math.PI / 2);
-    blindGeo.scale(0.7, 1.1, 1);
-    const blindMat = new THREE.MeshStandardMaterial({
-      color: 0xd8cfc4, // 无色素的苍白
-      roughness: 0.5,
-      emissive: 0x2a2620,
-    });
     const blindCount = Math.max(8, Math.floor(q.fish * 0.12));
-    this.blindMesh = new THREE.InstancedMesh(blindGeo, blindMat, blindCount);
     const zones: ['hall' | 'wreck', number][] = [['hall', 0.4], ['wreck', 0.5]];
     for (let i = 0; i < blindCount; i++) {
       const [zn, frac] = zones[i % zones.length];
@@ -103,7 +100,33 @@ export class Ecology {
       ));
       this.blind.push({ pos: home.clone(), home, phase: Math.random() * 10 });
     }
-    this.group.add(this.blindMesh);
+
+    // ---------- 巡游大鱼（光之厅 / 沉船厅 / 深渊各 1-2 条独游个体） ----------
+    const cruiserZones: ['hall' | 'wreck' | 'abyss', number][] = q.tier === 'mobile'
+      ? [['hall', 0.5], ['wreck', 0.4]]
+      : [['hall', 0.35], ['hall', 0.7], ['wreck', 0.4], ['abyss', 0.35]];
+    for (const [zn, frac] of cruiserZones) {
+      const zr = cave.zoneRange(zn);
+      const t = zr.t0 + (zr.t1 - zr.t0) * frac;
+      const { p: c } = cave.frameAt(0, t);
+      const r = cave.radiusAt(t);
+      const home = c.clone().add(new THREE.Vector3(
+        (Math.random() - 0.5) * r * 0.5,
+        r * 0.1 + Math.random() * r * 0.25,
+        (Math.random() - 0.5) * r * 0.5,
+      ));
+      this.cruisers.push({
+        pos: home.clone(),
+        home,
+        phase: Math.random() * Math.PI * 2,
+        len: 0.9 + Math.random() * 0.5,
+        wanderR: Math.max(2.5, r * 0.42),
+        avoid: new THREE.Vector3(),
+      });
+    }
+
+    // 模型解码完成后挂载三种鱼网格（data URI 解码近乎即时；失败自动程序化中模）
+    void models.fish.then((asset) => this.mountFishMeshes(q, asset));
 
     // ---------- 浮游发光体 ----------
     const n = q.plankton;
@@ -237,15 +260,67 @@ export class Ecology {
     }
   }
 
+  /** 模型解码完成 → 建三种鱼的 InstancedMesh（银汉鱼群 / 盲鱼 / 巡游大鱼） */
+  private mountFishMeshes(q: QualityProfile, asset: MeshAsset): void {
+    this.fishSource = asset.source;
+
+    // 银汉鱼群：银蓝色调 + 微弱冷发光（黑水里可读）
+    const schoolMat = asset.material.clone();
+    schoolMat.metalness = Math.max(schoolMat.metalness, 0.35);
+    schoolMat.roughness = Math.min(schoolMat.roughness, 0.5);
+    schoolMat.emissive = new THREE.Color(0x101c1c);
+    schoolMat.color.multiply(new THREE.Color(0xbcd4d8));
+    this.fishMesh = new THREE.InstancedMesh(asset.geometry, schoolMat, q.fish);
+    this.fishMesh.frustumCulled = false;
+    // 个体色差：银青微变
+    const tint = new THREE.Color();
+    for (let i = 0; i < q.fish; i++) {
+      tint.setHSL(0.5 + Math.sin(i * 3.7) * 0.03, 0.12, 0.62 + Math.sin(i * 7.1) * 0.1);
+      this.fishMesh.setColorAt(i, tint);
+    }
+    this.group.add(this.fishMesh);
+
+    // 盲眼洞鱼：无色素的苍白（洞穴特有种不需要贴图色）
+    const blindMat = new THREE.MeshStandardMaterial({
+      color: 0xd8cfc4,
+      roughness: 0.55,
+      emissive: 0x2a2620,
+      side: asset.source === 'procedural' ? THREE.DoubleSide : THREE.FrontSide,
+    });
+    this.blindMesh = new THREE.InstancedMesh(asset.geometry, blindMat, this.blind.length);
+    this.blindMesh.frustumCulled = false;
+    this.group.add(this.blindMesh);
+
+    // 巡游大鱼：保留原贴图（近看细节），色调压暗融入深水
+    const cruiserMat = asset.material.clone();
+    cruiserMat.color.multiply(new THREE.Color(0x9ab4ac));
+    cruiserMat.emissive = new THREE.Color(0x0a1210);
+    this.cruiserMesh = new THREE.InstancedMesh(asset.geometry, cruiserMat, this.cruisers.length);
+    this.cruiserMesh.frustumCulled = false;
+    this.group.add(this.cruiserMesh);
+  }
+
+  /** 调试：鱼资产来源与规模（无头回归断言用） */
+  fishInfo(): { source: string; school: number; blind: number; cruisers: number } {
+    return {
+      source: this.fishSource,
+      school: this.fish.length,
+      blind: this.blind.length,
+      cruisers: this.cruisers.length,
+    };
+  }
+
   update(dt: number, time: number, playerPos: THREE.Vector3, playerSpeed: number): void {
     this.updateFish(dt, time, playerPos);
     this.updateBlind(dt, time, playerPos);
+    this.updateCruisers(dt, time, playerPos);
     this.updatePlankton(dt, time, playerPos, playerSpeed);
     this.updateJellies(dt, time, playerPos);
     this.updateVents(dt);
   }
 
   private updateFish(dt: number, time: number, playerPos: THREE.Vector3): void {
+    if (!this.fishMesh) return;
     const c = this.fishCenter;
     const prev = new THREE.Vector3();
     const next = new THREE.Vector3();
@@ -267,6 +342,9 @@ export class Ecology {
       next.set(c.x + Math.cos(ang2) * f.radius, f.y + bob, c.z + Math.sin(ang2) * f.radius).add(f.scatter);
       this.dummy.position.copy(prev);
       this.dummy.lookAt(next);
+      // 尾摆：绕 Y 的小幅摆动（速度越快摆越快）
+      this.dummy.rotateY(Math.sin(time * (6 + f.speed * 5) + f.bobPhase * 3) * 0.14);
+      this.dummy.scale.setScalar(f.len);
       this.dummy.updateMatrix();
       this.fishMesh.setMatrixAt(i, this.dummy.matrix);
     }
@@ -274,6 +352,7 @@ export class Ecology {
   }
 
   private updateBlind(dt: number, time: number, playerPos: THREE.Vector3): void {
+    if (!this.blindMesh) return;
     for (let i = 0; i < this.blind.length; i++) {
       const b = this.blind[i];
       // 缓慢盘旋 + 被"光"（玩家）静静吸引
@@ -289,10 +368,43 @@ export class Ecology {
       b.pos.addScaledVector(dir, Math.min(1, dt * 0.5));
       this.dummy.position.copy(b.pos);
       this.dummy.lookAt(target.add(dir));
+      this.dummy.rotateY(Math.sin(time * 4.5 + b.phase * 5) * 0.12);
+      this.dummy.scale.setScalar(0.2);
       this.dummy.updateMatrix();
       this.blindMesh.setMatrixAt(i, this.dummy.matrix);
     }
     this.blindMesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /** 巡游大鱼：家域内缓慢巡游，怕玩家手电——4.5m 内缓慢转向避离 */
+  private updateCruisers(dt: number, time: number, playerPos: THREE.Vector3): void {
+    if (!this.cruiserMesh) return;
+    const target = new THREE.Vector3();
+    for (let i = 0; i < this.cruisers.length; i++) {
+      const cr = this.cruisers[i];
+      cr.phase += dt * 0.16;
+      target.set(
+        cr.home.x + Math.cos(cr.phase) * cr.wanderR,
+        cr.home.y + Math.sin(cr.phase * 1.7 + i) * cr.wanderR * 0.22,
+        cr.home.z + Math.sin(cr.phase) * cr.wanderR * 0.8,
+      );
+      const dp = cr.pos.distanceTo(playerPos);
+      if (dp < 4.5) {
+        const away = cr.pos.clone().sub(playerPos).normalize();
+        cr.avoid.addScaledVector(away, dt * (4.5 - dp) * 1.4);
+      }
+      cr.avoid.multiplyScalar(Math.exp(-0.8 * dt));
+      target.add(cr.avoid);
+      const dir = target.clone().sub(cr.pos);
+      cr.pos.addScaledVector(dir, Math.min(1, dt * 0.32));
+      this.dummy.position.copy(cr.pos);
+      this.dummy.lookAt(target.add(dir));
+      this.dummy.rotateY(Math.sin(time * 2.2 + i * 2.6) * 0.1);
+      this.dummy.scale.setScalar(cr.len);
+      this.dummy.updateMatrix();
+      this.cruiserMesh.setMatrixAt(i, this.dummy.matrix);
+    }
+    this.cruiserMesh.instanceMatrix.needsUpdate = true;
   }
 
   private updatePlankton(dt: number, time: number, playerPos: THREE.Vector3, playerSpeed: number): void {

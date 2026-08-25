@@ -8,6 +8,7 @@ import { Landmarks } from './Landmarks';
 import { WaterWorld } from './WaterWorld';
 import { Ecology } from './Ecology';
 import { Ancient } from './Ancient';
+import { Models } from './Models';
 import { Player } from './Player';
 import { Hud } from './Hud';
 import { Story, type StoryContext } from './Story';
@@ -36,6 +37,7 @@ const ZONE_ENV: Record<ZoneName, { fog: number; den: number; exp: number }> = {
 
 export class Game {
   private q = detectQuality();
+  private models = new Models();
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private cave: Cave;
@@ -111,7 +113,7 @@ export class Game {
     this.landmarks = new Landmarks(this.q, this.cave);
     this.scene.add(this.landmarks.group);
     this.water = new WaterWorld(this.q, this.cave, this.scene);
-    this.ecology = new Ecology(this.q, this.cave, this.scene);
+    this.ecology = new Ecology(this.q, this.cave, this.scene, this.models);
     this.ancient = new Ancient(this.cave, this.scene);
 
     const ab = this.cave.zoneRange('abyss');
@@ -198,6 +200,7 @@ export class Game {
         n2: +this.nitrogen.toFixed(1),
         zone: this.cave.zoneAt(this.player.mainT),
       }),
+      fish: () => this.ecology.fishInfo(),
     };
   }
 
