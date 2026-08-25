@@ -21,17 +21,17 @@ export class RedRoom {
     // 锯齿地面
     const floor = new THREE.Mesh(
       new THREE.CircleGeometry(11, 48),
-      new THREE.MeshStandardMaterial({ map: zigzagTexture(), roughness: 0.55 }),
+      new THREE.MeshStandardMaterial({ map: zigzagTexture(), color: 0xb5ad98, roughness: 0.72 }),
     );
     floor.rotation.x = -Math.PI / 2;
     this.group.add(floor);
 
     // 红帷幕：16 片 CPU 波动
     const curtainMat = new THREE.MeshStandardMaterial({
-      color: 0x6a0e0e,
-      roughness: 0.82,
+      color: 0x5a0b0b,
+      roughness: 0.85,
       side: THREE.DoubleSide,
-      emissive: 0x1c0303,
+      emissive: 0x200404,
     });
     const R = 10;
     for (let i = 0; i < 16; i++) {
@@ -54,22 +54,22 @@ export class RedRoom {
     dome.position.y = 9.4;
     this.group.add(dome);
 
-    // 布光：暖白主光 ×2 + 红氛围
-    const key1 = new THREE.PointLight(0xffe2c0, 60, 30, 1.6);
+    // 布光：暖白主光 ×2 + 红氛围（压暗，红为主）
+    const key1 = new THREE.PointLight(0xffe2c0, 38, 30, 1.6);
     key1.position.set(3, 7.5, 3);
-    const key2 = new THREE.PointLight(0xffd0a8, 34, 26, 1.7);
+    const key2 = new THREE.PointLight(0xffd0a8, 20, 26, 1.7);
     key2.position.set(-4, 6, -2);
-    const redAmb = new THREE.PointLight(0xc8341f, 26, 34, 1.5);
+    const redAmb = new THREE.PointLight(0xc8341f, 34, 34, 1.5);
     redAmb.position.set(0, 2.4, 0);
     this.keyLights.push(key1, key2, redAmb);
     this.group.add(key1, key2, redAmb);
 
     // 竹节虫
     this.buildPhasmid();
-    this.phasmid.position.set(0, 3.4, -1.5);
+    this.phasmid.position.set(0, 2.5, -1.2);
     this.group.add(this.phasmid);
-    this.phasmidLight = new THREE.PointLight(0xcfe8d0, 30, 18, 1.7);
-    this.phasmidLight.position.set(0, 4.6, -1.5);
+    this.phasmidLight = new THREE.PointLight(0xcfe8d0, 26, 18, 1.7);
+    this.phasmidLight.position.set(0, 3.8, -1.2);
     this.group.add(this.phasmidLight);
 
     this.group.visible = false;
@@ -128,7 +128,7 @@ export class RedRoom {
 
   /** 玩家在红厅中的初始视点 */
   get entryPos(): THREE.Vector3 {
-    return this.anchor.clone().add(new THREE.Vector3(0, 1.7, 7.4));
+    return this.anchor.clone().add(new THREE.Vector3(0, 1.7, 8.6));
   }
 
   update(_dt: number, time: number): void {
@@ -149,11 +149,11 @@ export class RedRoom {
       geo.computeVertexNormals();
     }
     // 竹节虫：缓慢呼吸式起伏与偏摆
-    this.phasmid.position.y = 3.4 + Math.sin(time * 0.5) * 0.3;
+    this.phasmid.position.y = 2.5 + Math.sin(time * 0.5) * 0.28;
     this.phasmid.rotation.y = Math.sin(time * 0.21) * 0.5;
     this.phasmid.rotation.z = Math.sin(time * 0.33) * 0.06;
-    this.phasmidLight.intensity = 26 + Math.sin(time * 1.7) * 7 + Math.sin(time * 4.3) * 3;
+    this.phasmidLight.intensity = 22 + Math.sin(time * 1.7) * 6 + Math.sin(time * 4.3) * 3;
     // 主光极缓慢脉动（房间在"呼吸"）
-    this.keyLights[0].intensity = 58 + Math.sin(time * 0.23) * 9;
+    this.keyLights[0].intensity = 36 + Math.sin(time * 0.23) * 7;
   }
 }

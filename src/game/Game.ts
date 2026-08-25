@@ -70,12 +70,13 @@ export class Game {
     this.scene.background = new THREE.Color(0x030a0d);
 
     // 极低冷环境光：只保证岩壁剪影可读
-    this.scene.add(new THREE.HemisphereLight(0x0e2a33, 0x020608, 0.22));
-    // 入水段：头顶漏光
-    const entry = new THREE.DirectionalLight(0x9fd4d8, 1.1);
-    entry.position.set(2, 30, 4);
-    entry.target.position.set(0, -10, -8);
-    this.scene.add(entry, entry.target);
+    this.scene.add(new THREE.HemisphereLight(0x0e2a33, 0x020608, 0.3));
+    // 入水段：天坑开口漏下的局部冷光（点光源，避免照亮全洞）
+    const entryGlow = new THREE.PointLight(0x9fd4d8, 130, 50, 1.5);
+    entryGlow.position.set(0, 4, -2);
+    const entryGlow2 = new THREE.PointLight(0x7db8c4, 48, 32, 1.6);
+    entryGlow2.position.set(2, -2, -14);
+    this.scene.add(entryGlow, entryGlow2);
 
     this.cave = new Cave(this.q);
     this.scene.add(this.cave.group);
@@ -101,6 +102,16 @@ export class Game {
     });
 
     this.renderer.setAnimationLoop(() => this.frame());
+
+    // 调试钩子：跳到指定样条进度（截图与流程自测用，见 docs/WORKFLOW.md §5）
+    (window as unknown as { __dd: object }).__dd = {
+      jump: (t: number) => {
+        this.player.setStart(this.cave, Math.max(0.01, Math.min(0.99, t)));
+      },
+      o2: (v: number) => {
+        this.oxygen = Math.max(0, Math.min(100, v));
+      },
+    };
   }
 
   private buildParticles(): void {
@@ -157,7 +168,7 @@ export class Game {
     this.hud.showHud();
     this.input.enable();
     this.input.requestPointerLock();
-    this.player.lightOn(30);
+    this.player.lightOn(46);
     this.state = 'play';
     this.startedAt = this.time;
     this.introQueue = [
@@ -237,7 +248,7 @@ export class Game {
 
   private shimmerShafts(): void {
     const mat = this.cave.shafts[0]?.material as THREE.MeshBasicMaterial | undefined;
-    if (mat) mat.opacity = 0.42 + Math.sin(this.time * 0.4) * 0.12 + Math.sin(this.time * 1.7) * 0.04;
+    if (mat) mat.opacity = 0.6 + Math.sin(this.time * 0.4) * 0.14 + Math.sin(this.time * 1.7) * 0.05;
   }
 
   private playFrame(dt: number): void {
@@ -288,8 +299,8 @@ export class Game {
     // 惊吓前兆：中段偶发微频闪（假警报，见 GDD §4.5）
     if (!this.scare.hasFired && this.player.curveT > 0.4 && this.player.curveT < 0.56) {
       if (Math.random() < dt * 0.06) {
-        this.player.flashlight.intensity = 30 * (0.4 + Math.random() * 0.4);
-        setTimeout(() => this.player.lightOn(30), 60 + Math.random() * 90);
+        this.player.flashlight.intensity = 46 * (0.4 + Math.random() * 0.4);
+        setTimeout(() => this.player.lightOn(46), 60 + Math.random() * 90);
       }
     }
 
@@ -343,7 +354,7 @@ export class Game {
     this.player.update(dt, this.input, this.cave, this.time);
     // 光变暖、变亮——产房的灯
     this.player.flashlight.color.lerpColors(new THREE.Color(0xffd9a0), new THREE.Color(0xffe9cf), k);
-    this.player.flashlight.intensity = 30 + k * 26;
+    this.player.flashlight.intensity = 46 + k * 30;
     this.player.flashlight.angle = 0.46 + k * 0.3;
     this.hud.setOxygen(0);
     this.hud.setDepth(Math.abs(this.player.position.y));
@@ -388,7 +399,7 @@ export class Game {
       (this.scene.background as THREE.Color).set(0x0a0101);
       this.player.flashlight.intensity = 0;
       this.player.camera.position.copy(this.redRoom.entryPos);
-      this.player.yaw = Math.PI;
+      this.player.yaw = 0; // 面向房间中央的竹节虫
       this.player.pitch = 0;
       this.hud.fade(false, { red: true });
     }, 900);
@@ -413,7 +424,7 @@ export class Game {
     this.player.yaw -= look.dx * 0.0016;
     this.player.pitch = Math.max(-1.2, Math.min(1.2, this.player.pitch - look.dy * 0.0016));
     const drift = Math.min(1, Math.max(0, (since - 3) / 26));
-    const target = this.redRoom.anchor.clone().add(new THREE.Vector3(0, 1.7, 2.6));
+    const target = this.redRoom.anchor.clone().add(new THREE.Vector3(0, 1.6, 3.6));
     this.player.camera.position.lerpVectors(this.redRoom.entryPos, target, drift * drift);
     this.player.camera.position.y += Math.sin(this.time * 0.8) * 0.03;
     const e = new THREE.Euler(this.player.pitch, this.player.yaw, Math.sin(this.time * 0.4) * 0.01, 'YXZ');

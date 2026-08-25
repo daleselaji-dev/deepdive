@@ -110,6 +110,21 @@ export function shaftTexture(): THREE.Texture {
   return tex;
 }
 
+/** 发光圆膜（井底红幕）：中心炽红向边缘衰减 */
+export function glowDiscTexture(): THREE.Texture {
+  const [c, ctx] = canvas(256, 256);
+  const g = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+  g.addColorStop(0, 'rgba(255,120,90,0.95)');
+  g.addColorStop(0.3, 'rgba(200,52,31,0.8)');
+  g.addColorStop(0.7, 'rgba(120,16,12,0.4)');
+  g.addColorStop(1, 'rgba(60,6,6,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 256, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 /** 红厅锯齿地纹（Twin Peaks 致意） */
 export function zigzagTexture(): THREE.Texture {
   const [c, ctx] = canvas(256, 256);

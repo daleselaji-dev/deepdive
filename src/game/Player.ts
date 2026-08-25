@@ -9,7 +9,7 @@ export class Player {
   readonly lightRig = new THREE.Object3D();
   readonly position = new THREE.Vector3();
   velocity = new THREE.Vector3();
-  yaw = Math.PI; // 面向 -Z（洞的深处）
+  yaw = 0; // 默认朝向 -Z（洞的深处）
   pitch = 0;
   curveT = 0.01;
   /** 0..1，缺氧时降低操控性 */

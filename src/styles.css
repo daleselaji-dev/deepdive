@@ -356,6 +356,10 @@ body {
 
 @media (max-width: 720px) {
   .brand-cn { display: none; }
+  .brand { font-size: 13vw; letter-spacing: 0.2em; margin-right: -0.2em; }
+  .tagline { font-size: 13px; }
+  #start { padding: 14px 30px 11px; }
+  #start small { letter-spacing: 0.1em; }
   #o2gauge { height: 96px; }
   #subtitle { bottom: calc(24vh + env(safe-area-inset-bottom, 0px)); font-size: 14px; }
   #depthwrap { top: auto; bottom: calc(46px + env(safe-area-inset-bottom, 0px)); transform: none; }

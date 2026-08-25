@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { QualityProfile } from './quality';
-import { rockTexture, shaftTexture } from './textures';
+import { glowDiscTexture, rockTexture, shaftTexture } from './textures';
 
 /**
  * 「寂静之井」洞穴本体：样条隧道（顶点噪声位移的自定义管几何）、
@@ -73,14 +73,15 @@ export class Cave {
       this.samples.push(this.curve.getPointAt(i / this.SAMPLE_N));
     }
 
+    // DoubleSide + 逐片元法线翻转：保证从隧道内部看正确受光
     const rockMat = new THREE.MeshStandardMaterial({
       map: rockTexture(q.tier === 'mobile' ? 256 : 512),
-      color: 0x8a9a94,
+      color: 0x93a29c,
       roughness: 0.96,
       metalness: 0.02,
-      side: THREE.BackSide,
+      side: THREE.DoubleSide,
     });
-    rockMat.map!.repeat.set(6, 22);
+    rockMat.map!.anisotropy = 4;
 
     const tube = this.buildTunnel(q, rockMat);
     this.group.add(tube);
@@ -90,11 +91,11 @@ export class Cave {
     this.buildSpeleothems(q);
     this.buildShafts(q);
 
-    // 井底红幕
+    // 井底红幕：发光的膜
     const veilMat = new THREE.MeshBasicMaterial({
-      color: 0x8a1111,
+      map: glowDiscTexture(),
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.9,
       side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
@@ -145,7 +146,8 @@ export class Cave {
         const y = center.y + (N.y * Math.cos(ang) + B.y * sin) * r;
         const z = center.z + (N.z * Math.cos(ang) + B.z * sin) * r;
         pos.push(x, y, z);
-        uv.push(j / radial, t * 30);
+        // 平铺只在此处控制（叠加 map.repeat 会造成摩尔纹）
+        uv.push((j / radial) * 7, t * 46);
       }
     }
     for (let i = 0; i < segs; i++) {
@@ -173,7 +175,11 @@ export class Cave {
       p.setXYZ(i, v.x, v.y, v.z);
     }
     geo.computeVertexNormals();
-    const mat = new THREE.MeshStandardMaterial({ color: 0x5c6a66, roughness: 0.98 });
+    const mat = new THREE.MeshStandardMaterial({
+      map: rockTexture(256),
+      color: 0x606d67,
+      roughness: 0.98,
+    });
     const mesh = new THREE.InstancedMesh(geo, mat, q.rocks);
     const m = new THREE.Matrix4();
     const quat = new THREE.Quaternion();
@@ -186,12 +192,13 @@ export class Cave {
       const N = new THREE.Vector3(0, 1, 0).cross(tan).normalize();
       if (N.lengthSq() < 0.01) N.set(1, 0, 0);
       const B = tan.clone().cross(N).normalize();
-      const r = this.radiusAt(t) * (0.94 + Math.random() * 0.1);
+      // 大部分嵌进岩壁，只露出凸起
+      const r = this.radiusAt(t) * (1.02 + Math.random() * 0.12);
       const posv = center
         .clone()
         .addScaledVector(N, Math.cos(ang) * r)
         .addScaledVector(B, Math.sin(ang) * r);
-      const s = 0.35 + Math.random() * 1.5;
+      const s = 0.28 + Math.random() * 0.85;
       scl.set(s, s * (0.6 + Math.random() * 0.9), s);
       quat.setFromEuler(new THREE.Euler(Math.random() * 3, Math.random() * 3, Math.random() * 3));
       m.compose(posv, quat, scl);
@@ -247,11 +254,11 @@ export class Cave {
     }
   }
 
-  /** 浅段钟乳石（cenote 特征） */
+  /** 浅段钟乳石（cenote 特征）：暗色、大半嵌入顶壁只露尖 */
   private buildSpeleothems(q: QualityProfile): void {
-    const mat = new THREE.MeshStandardMaterial({ color: 0x7a857e, roughness: 0.92 });
+    const mat = new THREE.MeshStandardMaterial({ map: rockTexture(256), color: 0x59655f, roughness: 0.95 });
     const count = Math.floor(q.rocks * 0.24);
-    const geo = new THREE.ConeGeometry(0.35, 2.6, 7);
+    const geo = new THREE.ConeGeometry(0.2, 2.4, 7);
     const mesh = new THREE.InstancedMesh(geo, mat, count);
     const m = new THREE.Matrix4();
     const quatDown = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI, 0, 0));
@@ -260,11 +267,11 @@ export class Cave {
       const center = this.curve.getPointAt(t);
       const r = this.radiusAt(t);
       const posv = center.clone();
-      posv.y += r * (0.82 + Math.random() * 0.12);
+      posv.y += r * (0.92 + Math.random() * 0.18);
       posv.x += (Math.random() - 0.5) * r * 1.1;
       posv.z += (Math.random() - 0.5) * 2;
-      const s = 0.4 + Math.random() * 1.2;
-      m.compose(posv, quatDown, new THREE.Vector3(s, s * (0.8 + Math.random()), s));
+      const s = 0.5 + Math.random() * 0.9;
+      m.compose(posv, quatDown, new THREE.Vector3(s, s * (1.1 + Math.random() * 0.8), s));
       mesh.setMatrixAt(i, m);
     }
     this.group.add(mesh);
