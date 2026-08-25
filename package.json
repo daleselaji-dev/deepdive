@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "demo:sync": "npm run build && node -e \"const fs=require('fs');const path=require('path');fs.rmSync('demo',{recursive:true,force:true});fs.mkdirSync('demo');fs.copyFileSync('dist/index.html','demo/index.html');fs.copyFileSync('dist/index.html','demo/DEEPDIVE.html');\"",
+    "demo:sync": "npm run build && node -e \"const fs=require('fs');fs.mkdirSync('demo',{recursive:true});fs.copyFileSync('dist/index.html','demo/index.html');fs.copyFileSync('dist/index.html','demo/DEEPDIVE.html');\"",
     "desktop": "cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .",
     "desktop:dev": "concurrently -k \"vite --port 5173 --strictPort\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
     "package:win": "node scripts/package-win.cjs"
