@@ -1,0 +1,237 @@
+/**
+ * 深海生物：苍白的脸 + 蛇形躯干。
+ * 两种形态：scare（近距离惊吓）与 awe（巨大、平静、生物荧光——竹节虫式点睛）。
+ */
+import * as THREE from 'three';
+import { Simplex3 } from '../../core/noise';
+import { makeGlowSprite } from '../../render/volumetric';
+
+function skinMaterial(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(0xdfe6e4) },
+      uRimColor: { value: new THREE.Color(0x9fd8e8) },
+      uLamp: { value: 1 },
+      uGlow: { value: 0 },
+      uTime: { value: 0 },
+    },
+    vertexShader: /* glsl */ `
+      varying vec3 vN;
+      varying vec3 vP;
+      varying vec3 vO;
+      void main() {
+        vN = normalize(normalMatrix * normal);
+        vO = position;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vP = mv.xyz;
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor;
+      uniform vec3 uRimColor;
+      uniform float uLamp;
+      uniform float uGlow;
+      uniform float uTime;
+      varying vec3 vN;
+      varying vec3 vP;
+      varying vec3 vO;
+      void main() {
+        vec3 n = normalize(vN);
+        vec3 vd = normalize(-vP);
+        float ndl = clamp(dot(n, vd), 0.0, 1.0);
+        float wrap = ndl * 0.5 + 0.5;
+        float dist = length(vP);
+        // 上限压到 0.62：贴脸也保留 wrap 阴影，避免整脸被 Bloom 冲成白块
+        float atten = clamp(uLamp * 12.0 / (1.0 + dist * dist * 0.09), 0.0, 0.62);
+        atten = max(atten, uGlow * 0.1);
+        // 皮肤霉斑纹理：两个频率的软噪声，苍白里带尸斑感
+        float mottle = 0.8
+          + 0.14 * sin(vO.x * 21.0 + sin(vO.y * 17.0 + vO.z * 9.0) * 2.2) * sin(vO.y * 19.0 + vO.z * 23.0)
+          + 0.06 * sin(vO.x * 57.0 + vO.y * 43.0) * sin(vO.z * 61.0 - vO.y * 39.0);
+        // 眼窝与口周阴影：溺亡般的凹陷（头部几何眼窝位置，躯干段落上仅是弱斑）
+        float sockets =
+          exp(-dot(vO - vec3( 0.17, 0.12, 0.42), vO - vec3( 0.17, 0.12, 0.42)) * 38.0) +
+          exp(-dot(vO - vec3(-0.17, 0.12, 0.42), vO - vec3(-0.17, 0.12, 0.42)) * 38.0) +
+          exp(-dot(vO - vec3( 0.0, -0.22, 0.46), vO - vec3( 0.0, -0.22, 0.46)) * 30.0) * 0.7;
+        mottle *= 1.0 - clamp(sockets, 0.0, 1.0) * 0.55;
+        // awe 形态压暗皮肤成剪影，让荧光灯列成为主角
+        float aweDim = 1.0 - uGlow * 0.82;
+        vec3 base = uColor * (0.02 + 0.98 * wrap * wrap * wrap) * atten * mottle * aweDim;
+        float fres = pow(1.0 - abs(dot(n, vd)), 2.2);
+        vec3 rim = uRimColor * fres * (0.3 * atten + uGlow * (1.3 + 0.35 * sin(uTime * 1.7)));
+        vec3 glow = uRimColor * uGlow * 0.05 * (0.8 + 0.2 * sin(uTime * 0.9 + vP.y));
+        gl_FragColor = vec4(base + rim + glow, 1.0);
+      }
+    `,
+  });
+}
+
+export class Creature {
+  readonly group = new THREE.Group();
+  private skin = skinMaterial();
+  private segments: THREE.Mesh[] = [];
+  private glowLight: THREE.PointLight;
+  private spots: THREE.Sprite[] = [];
+  private halo!: THREE.Sprite;
+  private lungeT = -1;
+  private baseZ = 0;
+
+  constructor(seed = 77) {
+    const noise = new Simplex3(seed);
+
+    // 头 / 脸
+    const headGeo = new THREE.SphereGeometry(0.5, 48, 40);
+    const pos = headGeo.attributes.position as THREE.BufferAttribute;
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      const n = noise.fbm(v.x * 2.2, v.y * 2.2, v.z * 2.2, 3);
+      // 颧骨与眼窝的凹陷
+      const socket =
+        Math.exp(-v.clone().sub(new THREE.Vector3(0.17, 0.1, 0.42)).lengthSq() * 22) +
+        Math.exp(-v.clone().sub(new THREE.Vector3(-0.17, 0.1, 0.42)).lengthSq() * 22);
+      const d = 1 + n * 0.07 - socket * 0.13;
+      pos.setXYZ(i, v.x * d, v.y * d, v.z * d);
+    }
+    headGeo.computeVertexNormals();
+    const head = new THREE.Mesh(headGeo, this.skin);
+    head.scale.set(0.85, 1.14, 0.94);
+    this.group.add(head);
+
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x010204 });
+    for (const sx of [-1, 1]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.095, 20, 16), eyeMat);
+      eye.position.set(sx * 0.155, 0.115, 0.395);
+      eye.scale.set(1, 1.25, 0.6);
+      this.group.add(eye);
+    }
+    const mouth = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 12), eyeMat);
+    mouth.position.set(0, -0.22, 0.43);
+    mouth.scale.set(1.5, 0.55, 0.4);
+    this.group.add(mouth);
+
+    // 蛇形躯干
+    for (let i = 0; i < 9; i++) {
+      const r = 0.36 * Math.pow(1 - i / 10, 0.85);
+      const seg = new THREE.Mesh(new THREE.SphereGeometry(r, 22, 18), this.skin);
+      seg.position.set(0, -0.06 * i, -0.5 - i * 0.52);
+      seg.scale.set(1, 1.15, 1.5);
+      this.group.add(seg);
+      this.segments.push(seg);
+    }
+
+    // 生物荧光斑点（awe 形态）：沿躯干的双列光点 + 随机簇（必须悬在体表之外，否则被躯干遮挡）
+    for (let i = 0; i < 40; i++) {
+      const k = Math.random();
+      const lane = i % 3;
+      const s = makeGlowSprite(lane === 2 ? 0xb08cff : 0x86e2ff, 0.14 + Math.random() * 0.1, 0);
+      if (lane < 2) {
+        // 双列侧灯：沿躯干规则分布（生物灯塔感），x 偏移随躯干变细收拢但始终在体表外
+        const zi = (i / 3) / 13;
+        s.position.set(
+          (lane === 0 ? -1 : 1) * (0.5 - zi * 0.2),
+          -0.02 - zi * 0.5,
+          -0.35 - zi * 4.9
+        );
+      } else {
+        const side = Math.random() < 0.5 ? -1 : 1;
+        s.position.set(
+          side * (0.34 + Math.random() * 0.22),
+          (Math.random() - 0.3) * 0.5 - 0.05 * k * 9,
+          -0.3 - k * 4.8
+        );
+      }
+      this.group.add(s);
+      this.spots.push(s);
+    }
+    // 头部荧光冠冕：环绕面部的一圈光点（正面遭遇时的"神性"轮廓，波动沿环传播）
+    for (let i = 0; i < 14; i++) {
+      const th = (i / 14) * Math.PI * 2;
+      const s = makeGlowSprite(i % 3 === 0 ? 0xb08cff : 0x86e2ff, 0.16 + (i % 2) * 0.06, 0);
+      s.position.set(Math.cos(th) * 0.68, Math.sin(th) * 0.82, 0.14);
+      this.group.add(s);
+      this.spots.push(s);
+    }
+    // 头后弥散光晕：背光剪影（Bloom 拾取）
+    this.halo = makeGlowSprite(0x5fc8ee, 4.2, 0);
+    this.halo.position.set(0, 0, -0.8);
+    this.group.add(this.halo);
+
+    this.glowLight = new THREE.PointLight(0x6fd4ff, 0, 26, 1.5);
+    this.group.add(this.glowLight);
+    this.group.visible = false;
+  }
+
+  setLamp(x: number) { this.skin.uniforms.uLamp.value = x; }
+
+  /** 惊吓形态：贴脸，随后扑近。 */
+  poseScare(camera: THREE.Camera) {
+    this.group.visible = true;
+    this.group.scale.setScalar(1);
+    this.skin.uniforms.uGlow.value = 0;
+    this.glowLight.intensity = 0;
+    (this.halo.material as THREE.SpriteMaterial).opacity = 0;
+    for (const s of this.spots) (s.material as THREE.SpriteMaterial).opacity = 0;
+
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    const camPos = new THREE.Vector3();
+    camera.getWorldPosition(camPos);
+    this.group.position.copy(camPos).addScaledVector(dir, 1.35);
+    this.group.position.y += 0.12;
+    this.group.lookAt(camPos);
+    this.baseZ = 0;
+    this.lungeT = 0;
+  }
+
+  /** 敬畏形态：巨大、发光、缓慢。近正面 + 荧光冠冕（躯干没入身后黑暗）。 */
+  poseAwe(position: THREE.Vector3, lookAt: THREE.Vector3) {
+    this.group.visible = true;
+    this.group.scale.setScalar(4.5);
+    this.group.position.copy(position);
+    this.aimAt(lookAt);
+    this.skin.uniforms.uGlow.value = 1;
+    this.glowLight.intensity = 16;
+    this.lungeT = -1;
+    (this.halo.material as THREE.SpriteMaterial).opacity = 0.35;
+    for (const s of this.spots) (s.material as THREE.SpriteMaterial).opacity = 1;
+  }
+
+  /** 面向目标后微侧 → 躯干退入身后黑暗，冠冕与侧灯前几节可见。 */
+  aimAt(target: THREE.Vector3) {
+    this.group.lookAt(target);
+    this.group.rotateY(0.35);
+  }
+
+  hide() { this.group.visible = false; }
+
+  update(dt: number, time: number) {
+    if (!this.group.visible) return;
+    this.skin.uniforms.uTime.value = time;
+    // 躯干摆动
+    for (let i = 0; i < this.segments.length; i++) {
+      const seg = this.segments[i];
+      seg.position.x = Math.sin(time * 1.15 + i * 0.65) * 0.1 * (i / 4);
+      seg.position.y = -0.06 * i + Math.cos(time * 0.8 + i * 0.5) * 0.05 * (i / 5);
+    }
+    // 惊吓扑近
+    if (this.lungeT >= 0) {
+      this.lungeT += dt;
+      const k = Math.min(1, this.lungeT / 0.8);
+      const ease = k * k;
+      this.group.translateZ((0.55 * ease - this.baseZ));
+      this.baseZ = 0.55 * ease;
+      this.group.rotation.z = Math.sin(time * 22) * 0.02 * (1 - k);
+    }
+    // 荧光斑点脉动（呼吸式，沿躯干相位递进 → 波动的灯塔）
+    if (this.skin.uniforms.uGlow.value > 0) {
+      for (let i = 0; i < this.spots.length; i++) {
+        const m = this.spots[i].material as THREE.SpriteMaterial;
+        m.opacity = 0.58 + 0.34 * Math.sin(time * 1.3 + i * 0.55);
+      }
+      this.glowLight.intensity = 14 + 5 * Math.sin(time * 0.8);
+      (this.halo.material as THREE.SpriteMaterial).opacity = 0.3 + 0.14 * Math.sin(time * 0.62);
+    }
+  }
+}
