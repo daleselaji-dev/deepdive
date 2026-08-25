@@ -70,7 +70,7 @@ export class PostFX {
 
           vec3 col;
           if (uAberr > 0.001) {
-            vec2 off = c * r2 * 0.05 * uAberr;
+            vec2 off = c * r2 * 0.03 * uAberr;
             col.r = texture2D(tDiffuse, uv + off).r;
             col.g = texture2D(tDiffuse, uv).g;
             col.b = texture2D(tDiffuse, uv - off).b;

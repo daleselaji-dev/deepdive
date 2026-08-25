@@ -39,7 +39,7 @@ function skinMaterial(): THREE.ShaderMaterial {
         float ndl = clamp(dot(n, vd), 0.0, 1.0);
         float wrap = ndl * 0.5 + 0.5;
         float dist = length(vP);
-        float atten = clamp(uLamp * 12.0 / (1.0 + dist * dist * 0.03), 0.0, 0.9);
+        float atten = clamp(uLamp * 12.0 / (1.0 + dist * dist * 0.09), 0.0, 0.9);
         atten = max(atten, uGlow * 0.32);
         vec3 base = uColor * (0.02 + 0.98 * wrap * wrap * wrap) * atten;
         float fres = pow(1.0 - abs(dot(n, vd)), 2.2);
@@ -117,7 +117,7 @@ export class Creature {
       this.spots.push(s);
     }
 
-    this.glowLight = new THREE.PointLight(0x6fd4ff, 0, 40, 1.4);
+    this.glowLight = new THREE.PointLight(0x6fd4ff, 0, 24, 1.6);
     this.group.add(this.glowLight);
     this.group.visible = false;
   }
@@ -150,7 +150,7 @@ export class Creature {
     this.group.position.copy(position);
     this.group.lookAt(lookAt);
     this.skin.uniforms.uGlow.value = 1;
-    this.glowLight.intensity = 90;
+    this.glowLight.intensity = 32;
     this.lungeT = -1;
     for (const s of this.spots) (s.material as THREE.SpriteMaterial).opacity = 1;
   }
@@ -181,7 +181,7 @@ export class Creature {
         const m = this.spots[i].material as THREE.SpriteMaterial;
         m.opacity = 0.6 + 0.4 * Math.sin(time * 1.3 + i * 1.7);
       }
-      this.glowLight.intensity = 85 + 22 * Math.sin(time * 0.8);
+      this.glowLight.intensity = 30 + 9 * Math.sin(time * 0.8);
     }
   }
 }

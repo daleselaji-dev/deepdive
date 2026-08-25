@@ -27,6 +27,7 @@ export class Game {
   private story!: StoryMode;
   private state: State = 'menu';
   private debug = new URLSearchParams(location.search).has('debug');
+  private timeScale = 1;
 
   constructor(root: HTMLDivElement) {
     const level = detectQuality();
@@ -62,6 +63,10 @@ export class Game {
     this.input.onPointerLockLost = () => {
       if (this.state === 'playing') this.pause();
     };
+    // 兜底：游玩中画布点击重新锁定指针
+    this.renderer.domElement.addEventListener('click', () => {
+      if (this.state === 'playing') this.input.requestPointerLock();
+    });
 
     addEventListener('resize', () => this.onResize());
     this.onResize();
@@ -79,6 +84,7 @@ export class Game {
         redroom: () => this.story.debugRedRoom(),
         scare: () => this.story.debugScare(),
         sm: () => this.story,
+        speed: (x: number) => { this.timeScale = x; },
       };
     }
 
@@ -187,7 +193,7 @@ export class Game {
   }
 
   private frame() {
-    const dt = Math.min(0.05, this.clock.getDelta());
+    const dt = Math.min(0.05, this.clock.getDelta()) * this.timeScale;
     this.time += dt;
     this.input.poll();
 
