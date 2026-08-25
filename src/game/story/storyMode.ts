@@ -58,6 +58,8 @@ export class StoryMode implements GameMode {
   private lampDim = 1;
   private flickerLeft = 0;
   private lampEffective = 1;
+  private spotBase = 60;
+  private fillBase = 2.5;
   private spot!: THREE.SpotLight;
   private fill!: THREE.PointLight;
   private cone: THREE.Mesh | null = null;
@@ -109,11 +111,11 @@ export class StoryMode implements GameMode {
 
     // 手电装备（跟随相机）
     this.lampRig = new THREE.Group();
-    this.spot = new THREE.SpotLight(0xfff0d6, 300, 36, 0.56, 0.62, 1.3);
+    this.spot = new THREE.SpotLight(0xfff0d6, this.spotBase, 38, 0.5, 0.55, 1.4);
     this.spot.position.set(0.22, -0.16, 0);
     this.spot.target.position.set(0, 0, -12);
     this.lampRig.add(this.spot, this.spot.target);
-    this.fill = new THREE.PointLight(0xa8c8d2, 3.2, 8, 1.7);
+    this.fill = new THREE.PointLight(0xa8c8d2, 2.4, 8, 1.7);
     this.lampRig.add(this.fill);
     if (q.volumetric) {
       this.cone = makeLightCone({ length: 13, radius: 3.4, color: 0xcfe6dd, intensity: 0.085 });
@@ -132,7 +134,7 @@ export class StoryMode implements GameMode {
     this.scene.add(this.creature.group);
 
     // 假指引灯
-    this.guideSprite = makeGlowSprite(0xd8e8b8, 1.6, 0);
+    this.guideSprite = makeGlowSprite(0xd8e8b8, 2.6, 0);
     const gp = this.cave.sampleAtT(0.705).pos;
     this.guideSprite.position.copy(gp);
     this.guideLightPt = new THREE.PointLight(0xc8e0a0, 0, 16, 1.6);
@@ -157,6 +159,44 @@ export class StoryMode implements GameMode {
     this.sampleIdx = 8;
     this.o2 = MAX_O2;
   }
+
+  // ---------- 调试钩子（?debug=1 时由 game.ts 暴露到 window.__dd） ----------
+
+  debugTeleport(t: number) {
+    const s = this.cave.sampleAtT(t);
+    this.pos.copy(s.pos);
+    this.sampleIdx = Math.round(t * (this.cave.samples.length - 1));
+    this.vel.set(0, 0, 0);
+    this.yaw = Math.atan2(-s.tangent.x, -s.tangent.z);
+    this.pitch = clamp(Math.asin(clamp(s.tangent.y, -1, 1)), -1.4, 1.4);
+    this.updateProgress();
+    this.applyCamera();
+  }
+
+  debugFace() {
+    this.creature.poseScare(this.ctx.camera);
+    this.ctx.post.uniforms.uFlash.value = 0.22;
+    this.lampOn = true;
+    this.lampForcedOff = false;
+    this.lampDim = 1;
+  }
+
+  debugAwe() {
+    const ahead = this.cave.sampleAtT(Math.min(0.985, this.progressT + 0.05));
+    const p = ahead.pos.clone().addScaledVector(ahead.down, -ahead.radius * 0.15);
+    this.creature.poseAwe(p, this.pos);
+    this.fogTargetDensity = 0.045;
+    this.fogTargetColor.set(0x04222e);
+    this.ambientTarget = 0.1;
+  }
+
+  debugRedRoom() {
+    this.enterRedRoom();
+    this.ctx.post.uniforms.uFade.value = 0;
+    this.ctx.hud.setGaugesVisible(false);
+  }
+
+  debugScare() { this.beginScare(); }
 
   /** 运行时可热切换的画质项（粒子数 / 体积光 / 后处理由 PostFX 处理）。 */
   applyQuality(q: import('../../core/quality').QualitySettings) {
@@ -356,7 +396,7 @@ export class StoryMode implements GameMode {
     this.fill.intensity = 1.2;
     if (this.cone) tickCone(this.cone, t, 0);
     cam.getWorldDirection(this.fwd);
-    this.silt.update(t, cam.position, this.fwd, 0, 0.55);
+    this.silt.update(t, cam.position, this.fwd, 0, 0.3);
     void dt;
   }
 
@@ -376,8 +416,8 @@ export class StoryMode implements GameMode {
     }
     f *= this.lampDim;
     this.lampEffective = damp(this.lampEffective, f, 18, dt);
-    this.spot.intensity = 300 * this.lampEffective;
-    this.fill.intensity = 3.2 * Math.max(this.lampEffective, 0.12);
+    this.spot.intensity = this.spotBase * this.lampEffective;
+    this.fill.intensity = this.fillBase * Math.max(this.lampEffective, 0.12);
     if (this.cone) tickCone(this.cone, t, 0.085 * this.lampEffective);
     this.creature.setLamp(this.lampEffective);
   }
@@ -391,7 +431,7 @@ export class StoryMode implements GameMode {
 
     const cam = this.ctx.camera;
     cam.getWorldDirection(this.fwd);
-    this.silt.update(t, cam.position, this.fwd, this.lampEffective, this.ambientCur * 0.35);
+    this.silt.update(t, cam.position, this.fwd, this.lampEffective, this.ambientCur * 0.22);
     this.ctx.audio.update(dt);
   }
 
@@ -449,9 +489,9 @@ export class StoryMode implements GameMode {
       this.guideLightPt.intensity = damp(this.guideLightPt.intensity, 0, 5, dt);
       return;
     }
-    const pulse = 0.55 + 0.35 * Math.sin(t * 2.2) * Math.sin(t * 0.9);
+    const pulse = 0.6 + 0.35 * Math.sin(t * 2.2) * Math.sin(t * 0.9);
     (this.guideSprite.material as THREE.SpriteMaterial).opacity = pulse;
-    this.guideLightPt.intensity = 20 * pulse;
+    this.guideLightPt.intensity = 34 * pulse;
     const d = this.guideSprite.position.distanceTo(this.pos);
     if (d < 6.5) {
       this.guideAlive = false;
@@ -566,7 +606,7 @@ export class StoryMode implements GameMode {
     if (this.aweSpawned && this.creature.group.visible) {
       this.tmpV.copy(this.pos).sub(this.creature.group.position);
       const d = this.tmpV.length();
-      if (d > 7) this.creature.group.position.addScaledVector(this.tmpV.normalize(), dt * 0.55);
+      if (d > 9.5) this.creature.group.position.addScaledVector(this.tmpV.normalize(), dt * 0.55);
       this.creature.group.lookAt(this.pos);
     }
 

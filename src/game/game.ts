@@ -26,6 +26,7 @@ export class Game {
   private pauseMenu: PauseMenu;
   private story!: StoryMode;
   private state: State = 'menu';
+  private debug = new URLSearchParams(location.search).has('debug');
 
   constructor(root: HTMLDivElement) {
     const level = detectQuality();
@@ -36,8 +37,8 @@ export class Game {
       powerPreference: 'high-performance',
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.12;
+    // 色调映射在 PostFX 合成通道内手动完成（RT 为线性 HDR）
+    this.renderer.toneMapping = THREE.NoToneMapping;
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, this.quality.maxPixelRatio));
     this.renderer.setSize(innerWidth, innerHeight);
     root.appendChild(this.renderer.domElement);
@@ -68,6 +69,18 @@ export class Game {
     // 首屏：从黑场淡入标题
     this.hud.fade(1, 0);
     requestAnimationFrame(() => this.hud.fade(0, 2.5));
+
+    if (this.debug) {
+      (window as unknown as Record<string, unknown>).__dd = {
+        start: () => this.startStory(),
+        teleport: (t: number) => this.story.debugTeleport(t),
+        face: () => this.story.debugFace(),
+        awe: () => this.story.debugAwe(),
+        redroom: () => this.story.debugRedRoom(),
+        scare: () => this.story.debugScare(),
+        sm: () => this.story,
+      };
+    }
 
     this.renderer.setAnimationLoop(() => this.frame());
   }
@@ -106,11 +119,13 @@ export class Game {
     this.audio.ensure();
     this.audio.uiClick();
     this.menu.hide();
-    this.hud.fade(1, 1.2);
-    this.audio.setTape(true);
-    await this.wait(1300);
-    await this.hud.showCards(INTRO_CARDS);
-    this.audio.setTape(false);
+    if (!this.debug) {
+      this.hud.fade(1, 1.2);
+      this.audio.setTape(true);
+      await this.wait(1300);
+      await this.hud.showCards(INTRO_CARDS);
+      this.audio.setTape(false);
+    }
 
     // 重置后处理与玩家，入水
     const u = this.post.uniforms;

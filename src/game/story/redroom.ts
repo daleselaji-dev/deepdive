@@ -35,8 +35,8 @@ function curtainMaterial(dim = 1): THREE.ShaderMaterial {
         float f = sin(vUv.x * 46.0 + sin(vUv.x * 13.0 + uPhase) * 2.2 + uTime * 0.25) * 0.5 + 0.5;
         float folds = 0.35 + 0.65 * pow(f, 1.7);
         float vert = 0.55 + 0.55 * sin(vUv.y * 3.14159);
-        vec3 col = vec3(0.5, 0.015, 0.05) * folds * vert;
-        col += vec3(0.16, 0.0, 0.02) * pow(1.0 - vUv.y, 2.0);
+        vec3 col = vec3(0.85, 0.025, 0.085) * folds * vert;
+        col += vec3(0.26, 0.0, 0.03) * pow(1.0 - vUv.y, 2.0);
         gl_FragColor = vec4(col * uDim, 1.0);
       }
     `,
@@ -128,11 +128,11 @@ export class RedRoom {
     this.scene.add(floor);
 
     // 顶光 + 环境
-    this.spot = new THREE.SpotLight(0xffe8d0, 1400, 40, 0.55, 0.6, 1.5);
-    this.spot.position.set(0, 11, -4);
+    this.spot = new THREE.SpotLight(0xffe8d0, 1700, 44, 0.74, 0.65, 1.5);
+    this.spot.position.set(0, 11, -3);
     this.spot.target.position.copy(this.figurePos);
     this.scene.add(this.spot, this.spot.target);
-    this.scene.add(new THREE.AmbientLight(0x3d0208, 1.6));
+    this.scene.add(new THREE.AmbientLight(0x3d0208, 4.5));
 
     // 身影脚下的镜像辉光
     const gl = makeGlowSprite(0xff4a4a, 3.2, 0.16);
@@ -189,7 +189,7 @@ export class RedRoom {
   turnTo(x: number) { this.turnTarget = x; }
 
   dimLights(x: number) {
-    this.spot.intensity = 1400 * x;
+    this.spot.intensity = 1700 * x;
   }
 
   update(dt: number, time: number) {

@@ -92,11 +92,11 @@ export class CaveSystem {
     this.buildSpeleothems(quality);
 
     // 出生点：入口下方，面向隧道
-    const s0 = this.sampleAtT(0.012);
+    const s0 = this.sampleAtT(0.03);
     this.spawnPos.copy(s0.pos).addScaledVector(s0.down, -s0.radius * 0.1);
 
     // 入口天光
-    const spot = new THREE.SpotLight(0x9fe0ff, 900, 55, 0.62, 0.85, 1.4);
+    const spot = new THREE.SpotLight(0x9fe0ff, 55, 55, 0.45, 0.9, 1.5);
     spot.position.set(0, 8, 2);
     spot.target.position.set(1, -14, -22);
     this.group.add(spot, spot.target);
@@ -161,9 +161,9 @@ export class CaveSystem {
     const tmp = new THREE.Vector3();
     const dir = new THREE.Vector3();
 
-    const cA = new THREE.Color(0x413a30); // 暖褐岩
-    const cB = new THREE.Color(0x4c565e); // 冷灰岩
-    const cAlgae = new THREE.Color(0x2e4d33); // 入口藻绿
+    const cA = new THREE.Color(0x8a7a63); // 暖褐岩
+    const cB = new THREE.Color(0x8fa0aa); // 冷灰岩
+    const cAlgae = new THREE.Color(0x5f8a5c); // 入口藻绿
     const col = new THREE.Color();
 
     for (let i = 0; i <= seg; i++) {
@@ -177,7 +177,7 @@ export class CaveSystem {
         dir.copy(N).multiplyScalar(Math.cos(theta)).addScaledVector(B, Math.sin(theta));
         tmp.copy(C).addScaledVector(dir, rBase);
         const n = this.wallNoise(tmp);
-        const r = rBase * (1 + 0.28 * n);
+        const r = rBase * (1 + 0.3 * n);
         tmp.copy(C).addScaledVector(dir, r);
         const vi = (i * (rad + 1) + j) * 3;
         positions[vi] = tmp.x;
@@ -186,7 +186,10 @@ export class CaveSystem {
 
         const n2 = this.noise.noise(tmp.x * 0.31 + 40, tmp.y * 0.31, tmp.z * 0.31);
         const n3 = this.noise.noise(tmp.x * 1.7, tmp.y * 1.7 + 9, tmp.z * 1.7);
-        col.copy(cA).lerp(cB, n2 * 0.5 + 0.5).multiplyScalar(0.72 + 0.35 * (n3 * 0.5 + 0.5));
+        // 凹陷处更暗（廉价 AO），高频噪声提对比
+        const crevice = 0.5 + 0.5 * clamp(n * 0.9 + 0.5, 0, 1);
+        col.copy(cA).lerp(cB, n2 * 0.5 + 0.5)
+          .multiplyScalar((0.62 + 0.38 * (n3 * 0.5 + 0.5)) * crevice);
         // 入口上半部藻绿
         if (u < 0.1 && dir.y > 0.1) {
           col.lerp(cAlgae, (0.1 - u) * 8 * dir.y);
@@ -207,11 +210,13 @@ export class CaveSystem {
     geo.setIndex(indices);
     geo.computeVertexNormals();
 
+    // 注意：该索引绕序生成的面朝向隧道内部，因此用 FrontSide 渲染内壁
     const mat = new THREE.MeshStandardMaterial({
       vertexColors: true,
       roughness: 0.92,
       metalness: 0.04,
-      side: THREE.BackSide,
+      side: THREE.FrontSide,
+      flatShading: true,
     });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.frustumCulled = false;
@@ -233,14 +238,14 @@ export class CaveSystem {
     }
     shaft.computeVertexNormals();
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x4a5248, roughness: 0.9, metalness: 0.05, side: THREE.BackSide,
+      color: 0x6f7a6e, roughness: 0.9, metalness: 0.05, side: THREE.BackSide, flatShading: true,
     });
     const mesh = new THREE.Mesh(shaft, mat);
     this.group.add(mesh);
 
     // 水面辉光盘
-    const glow = makeGlowSprite(0xbdf3ff, 14, 0.9);
-    glow.position.set(0, 8.5, 0);
+    const glow = makeGlowSprite(0xbdf3ff, 8, 0.5);
+    glow.position.set(0, 9.5, 0);
     this.group.add(glow);
 
     // 三根下射光柱
@@ -249,7 +254,7 @@ export class CaveSystem {
         length: 17 + i * 3,
         radius: 1.6 + i * 1.4,
         color: 0x8fd8f0,
-        intensity: 0.16 - i * 0.04,
+        intensity: 0.09 - i * 0.025,
       });
       cone.position.set((i - 1) * 1.1, 7.5, (i - 1) * 0.8);
       cone.rotateX(-Math.PI / 2 + (i - 1) * 0.1);
@@ -308,22 +313,26 @@ export class CaveSystem {
       pos.setXYZ(i, v.x * (1 + n * 0.35), v.y, v.z * (1 + n * 0.35));
     }
     geo.computeVertexNormals();
-    const mat = new THREE.MeshStandardMaterial({ color: 0x59544a, roughness: 0.9 });
+    const mat = new THREE.MeshStandardMaterial({ color: 0x7d7466, roughness: 0.92 });
     const inst = new THREE.InstancedMesh(geo, mat, count);
     const m = new THREE.Matrix4();
     const qt = new THREE.Quaternion();
     const up = new THREE.Vector3(0, 1, 0);
     const sc = new THREE.Vector3();
+    const dirV = new THREE.Vector3();
+    const side = new THREE.Vector3();
     const rand = (a: number, b: number) => a + Math.random() * (b - a);
 
     for (let i = 0; i < count; i++) {
       const t = rand(0.33, 0.48);
       const s = this.sampleAtT(t);
       const fromCeiling = Math.random() < 0.5;
-      const dirV = fromCeiling ? s.down.clone().negate() : s.down.clone();
-      const side = new THREE.Vector3().crossVectors(s.tangent, s.down).normalize()
-        .multiplyScalar(rand(-0.7, 0.7) * s.radius);
-      const base = s.pos.clone().addScaledVector(dirV, s.radius * rand(0.82, 0.95)).add(side);
+      // 沿环截面选一个靠近顶/底的角度，保证贴在洞壁上
+      const a = rand(-0.55, 0.55);
+      side.crossVectors(s.tangent, s.down).normalize();
+      dirV.copy(s.down).multiplyScalar(Math.cos(a) * (fromCeiling ? -1 : 1))
+        .addScaledVector(side, Math.sin(a));
+      const base = s.pos.clone().addScaledVector(dirV, s.radius * rand(0.86, 0.98));
       qt.setFromUnitVectors(up, dirV.clone().negate());
       sc.set(rand(0.5, 1.6), rand(0.7, 2.4), rand(0.5, 1.6));
       m.compose(base, qt, sc);
@@ -393,7 +402,7 @@ export class CaveSystem {
         rp.setXYZ(i, v.x * (1 + n * 0.3), v.y * (0.7 + n * 0.2), v.z * (1 + n * 0.3));
       }
       rockGeo.computeVertexNormals();
-      const rock = new THREE.Mesh(rockGeo, new THREE.MeshStandardMaterial({ color: 0x4d483e, roughness: 0.95 }));
+      const rock = new THREE.Mesh(rockGeo, new THREE.MeshStandardMaterial({ color: 0x776f5f, roughness: 0.95 }));
       rock.position.copy(base);
       this.group.add(rock);
 

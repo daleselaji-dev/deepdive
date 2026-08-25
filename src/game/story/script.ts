@@ -33,7 +33,7 @@ export const BEATS: Beat[] = [
   {
     t: 0.005,
     run: (c) => {
-      c.fog(0.035, 0x0b3540);
+      c.fog(0.035, 0x08222b);
       c.drone(0.25);
       c.ambient(0.4);
       c.obj('跟随主线绳下潜');
@@ -51,7 +51,7 @@ export const BEATS: Beat[] = [
   {
     t: 0.13,
     run: (c) => {
-      c.fog(0.055, 0x07242e);
+      c.fog(0.055, 0x04141c);
       c.drone(0.38);
       c.ambient(0.18);
       c.sub('通道在收窄。岩壁上有绳子——是主线绳。埃利亚斯布的线。', 6);
@@ -68,7 +68,7 @@ export const BEATS: Beat[] = [
   {
     t: 0.3,
     run: (c) => {
-      c.fog(0.038, 0x051a22);
+      c.fog(0.038, 0x030f14);
       c.drone(0.45);
       c.ambient(0.12);
       c.sub('洞顶忽然远去——一座石头的教堂。他们管这种地方叫"钟厅"。', 7);
@@ -95,7 +95,7 @@ export const BEATS: Beat[] = [
   {
     t: 0.5,
     run: (c) => {
-      c.fog(0.08, 0x03141a);
+      c.fog(0.08, 0x02090d);
       c.drone(0.55);
       c.tension(0.38);
       c.sub('窄缝。教科书说：吐气、贴壁、慢。教科书没说心跳怎么办。', 7);
@@ -111,7 +111,7 @@ export const BEATS: Beat[] = [
   {
     t: 0.6,
     run: (c) => {
-      c.fog(0.1, 0x020c10);
+      c.fog(0.1, 0x010507);
       c.drone(0.4);
       c.ambient(0.03);
       c.eerie(true);

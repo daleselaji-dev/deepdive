@@ -32,8 +32,9 @@ export class PostFX {
         uClose: { value: 0 },      // 缺氧隧道视觉 0..1
         uDistort: { value: quality.postDistortion ? 1 : 0 },
         uAberr: { value: quality.postAberration ? 1 : 0 },
-        uGrain: { value: 0.055 },
+        uGrain: { value: 0.028 },
         uGradeDepth: { value: 0.4 }, // 深水色分级强度
+        uExposure: { value: 1.15 },
       },
       vertexShader: /* glsl */ `
         varying vec2 vUv;
@@ -44,11 +45,17 @@ export class PostFX {
       `,
       fragmentShader: /* glsl */ `
         uniform sampler2D tDiffuse;
-        uniform float uTime, uFade, uWhite, uFlash, uClose, uDistort, uAberr, uGrain, uGradeDepth;
+        uniform float uTime, uFade, uWhite, uFlash, uClose, uDistort, uAberr, uGrain, uGradeDepth, uExposure;
         varying vec2 vUv;
 
         float hash(vec2 p) {
           return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+        }
+
+        // RT 中为线性 HDR（three 不对离屏目标做 tone mapping），此处手动 ACES
+        vec3 aces(vec3 x) {
+          x *= uExposure;
+          return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
         }
 
         void main() {
@@ -71,18 +78,22 @@ export class PostFX {
             col = texture2D(tDiffuse, uv).rgb;
           }
 
+          // 色调映射 + 转显示空间，再做全部分级（避免线性空间暗部被 sRGB 放大）
+          col = aces(max(col, 0.0));
+          col = pow(col, vec3(1.0 / 2.2));
+
           // 深水色分级：暗部染蓝青、红衰减
           float lum = dot(col, vec3(0.299, 0.587, 0.114));
-          vec3 graded = pow(max(col, 0.0), vec3(1.06, 1.0, 0.93));
-          graded = mix(graded, graded * vec3(0.74, 0.96, 1.1), uGradeDepth * 0.65);
-          graded += vec3(0.003, 0.009, 0.016) * uGradeDepth * (1.0 - lum);
+          vec3 graded = pow(max(col, 0.0), vec3(1.08, 1.0, 0.94));
+          graded = mix(graded, graded * vec3(0.72, 0.96, 1.1), uGradeDepth * 0.65);
+          graded += vec3(0.004, 0.012, 0.02) * uGradeDepth * (1.0 - lum);
           col = graded;
 
           // 晕影 + 缺氧收缩
           float l = length(c);
           float vig = 1.0 - smoothstep(0.42, 0.86, l);
           float tunnel = 1.0 - smoothstep(0.04 + (1.0 - uClose) * 0.62, 0.16 + (1.0 - uClose) * 0.9, l);
-          col *= mix(0.24, 1.0, vig);
+          col *= mix(0.32, 1.0, vig);
           col *= mix(1.0, tunnel, uClose);
 
           // 惊吓闪光（冷白）与白光吞没（生物之光：青白）
@@ -91,11 +102,10 @@ export class PostFX {
 
           // 胶片颗粒
           float g = hash(vUv * 617.0 + fract(uTime * 13.71) * 431.0) - 0.5;
-          col += g * uGrain * (0.55 + (1.0 - lum) * 0.8);
+          col += g * uGrain * (0.4 + (1.0 - lum) * 0.45);
 
           col *= (1.0 - uFade);
           gl_FragColor = vec4(col, 1.0);
-          #include <colorspace_fragment>
         }
       `,
     });

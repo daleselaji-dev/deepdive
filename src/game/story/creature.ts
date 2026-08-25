@@ -39,11 +39,12 @@ function skinMaterial(): THREE.ShaderMaterial {
         float ndl = clamp(dot(n, vd), 0.0, 1.0);
         float wrap = ndl * 0.5 + 0.5;
         float dist = length(vP);
-        float atten = uLamp * clamp(18.0 / (1.0 + dist * dist * 0.02), 0.0, 1.4);
-        vec3 base = uColor * (0.04 + 0.96 * wrap * wrap) * atten;
-        float fres = pow(1.0 - abs(dot(n, vd)), 2.4);
-        vec3 rim = uRimColor * fres * (0.25 * atten + uGlow * (1.4 + 0.35 * sin(uTime * 1.7)));
-        vec3 glow = uColor * uGlow * 0.22 * (0.8 + 0.2 * sin(uTime * 0.9 + vP.y));
+        float atten = clamp(uLamp * 12.0 / (1.0 + dist * dist * 0.03), 0.0, 0.9);
+        atten = max(atten, uGlow * 0.32);
+        vec3 base = uColor * (0.02 + 0.98 * wrap * wrap * wrap) * atten;
+        float fres = pow(1.0 - abs(dot(n, vd)), 2.2);
+        vec3 rim = uRimColor * fres * (0.3 * atten + uGlow * (2.2 + 0.5 * sin(uTime * 1.7)));
+        vec3 glow = uRimColor * uGlow * 0.16 * (0.8 + 0.2 * sin(uTime * 0.9 + vP.y));
         gl_FragColor = vec4(base + rim + glow, 1.0);
       }
     `,
@@ -105,7 +106,7 @@ export class Creature {
 
     // 生物荧光斑点（awe 形态）
     for (let i = 0; i < 26; i++) {
-      const s = makeGlowSprite(0x86e2ff, 0.22, 0);
+      const s = makeGlowSprite(0x86e2ff, 0.34, 0);
       const k = Math.random();
       s.position.set(
         (Math.random() - 0.5) * 0.5,
@@ -145,13 +146,13 @@ export class Creature {
   /** 敬畏形态：巨大、发光、缓慢。 */
   poseAwe(position: THREE.Vector3, lookAt: THREE.Vector3) {
     this.group.visible = true;
-    this.group.scale.setScalar(5.5);
+    this.group.scale.setScalar(6.5);
     this.group.position.copy(position);
     this.group.lookAt(lookAt);
     this.skin.uniforms.uGlow.value = 1;
-    this.glowLight.intensity = 260;
+    this.glowLight.intensity = 90;
     this.lungeT = -1;
-    for (const s of this.spots) (s.material as THREE.SpriteMaterial).opacity = 0.85;
+    for (const s of this.spots) (s.material as THREE.SpriteMaterial).opacity = 1;
   }
 
   hide() { this.group.visible = false; }
@@ -178,9 +179,9 @@ export class Creature {
     if (this.skin.uniforms.uGlow.value > 0) {
       for (let i = 0; i < this.spots.length; i++) {
         const m = this.spots[i].material as THREE.SpriteMaterial;
-        m.opacity = 0.5 + 0.45 * Math.sin(time * 1.3 + i * 1.7);
+        m.opacity = 0.6 + 0.4 * Math.sin(time * 1.3 + i * 1.7);
       }
-      this.glowLight.intensity = 230 + 60 * Math.sin(time * 0.8);
+      this.glowLight.intensity = 85 + 22 * Math.sin(time * 0.8);
     }
   }
 }

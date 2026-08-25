@@ -7,7 +7,7 @@ export class Silt {
   readonly points: THREE.Points;
   private mat: THREE.ShaderMaterial;
 
-  constructor(count: number, color = new THREE.Color(0.72, 0.84, 0.9)) {
+  constructor(count: number, color = new THREE.Color(0.32, 0.42, 0.48)) {
     const geo = new THREE.BufferGeometry();
     const pos = new Float32Array(count * 3);
     const seed = new Float32Array(count);
@@ -30,7 +30,7 @@ export class Silt {
         uLamp: { value: 1 },
         uAmbient: { value: 0.3 },
         uColor: { value: color },
-        uSize: { value: 40 },
+        uSize: { value: 24 },
       },
       vertexShader: /* glsl */ `
         uniform float uTime;
@@ -54,7 +54,7 @@ export class Silt {
           float d = max(0.6, -mv.z);
           float cone = smoothstep(0.80, 0.97, dot(normalize(rel + 0.0001), uLightDir));
           float lit = uAmbient + uLamp * cone * smoothstep(15.0, 2.5, d);
-          vA = smoothstep(13.0, 5.0, d) * (0.3 + 0.7 * fract(aSeed * 7.31)) * lit;
+          vA = smoothstep(13.0, 5.0, d) * (0.3 + 0.7 * fract(aSeed * 7.31)) * lit * 0.4;
           gl_PointSize = uSize * (0.9 + fract(aSeed * 3.7)) / d;
           gl_Position = projectionMatrix * mv;
         }
@@ -122,7 +122,7 @@ export class BubblePool {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
-      uniforms: { uScale: { value: 900 } },
+      uniforms: { uScale: { value: 620 } },
       vertexShader: /* glsl */ `
         uniform float uScale;
         attribute float aAlpha;
@@ -187,7 +187,7 @@ export class BubblePool {
       this.posArr[i * 3 + 1] += b.vel * dt;
       this.posArr[i * 3] += Math.sin(time * 3 + b.phase) * 0.16 * dt;
       this.posArr[i * 3 + 2] += Math.cos(time * 2.6 + b.phase) * 0.12 * dt;
-      this.sizeArr[i] += dt * 0.006;
+      this.sizeArr[i] += dt * 0.0035;
       const k = b.life / b.maxLife;
       this.alphaArr[i] = k < 0.1 ? k / 0.1 : 1 - Math.pow((k - 0.1) / 0.9, 2);
     }
