@@ -6,6 +6,8 @@ export interface ConeOpts {
   radius: number;
   color: THREE.ColorRepresentation;
   intensity: number;
+  /** 相机附近片元淡出距离（玩家钻进光柱内部时不糊屏）；缺省 0 = 关闭。 */
+  nearFade?: number;
 }
 
 /** 顶点在原点、沿 -Z 展开的体积光锥。 */
@@ -24,6 +26,7 @@ export function makeLightCone(opts: ConeOpts): THREE.Mesh {
       uColor: { value: new THREE.Color(opts.color) },
       uIntensity: { value: opts.intensity },
       uLength: { value: opts.length },
+      uNearFade: { value: opts.nearFade ?? 0 },
     },
     vertexShader: /* glsl */ `
       varying vec3 vObj;
@@ -42,6 +45,7 @@ export function makeLightCone(opts: ConeOpts): THREE.Mesh {
       uniform vec3 uColor;
       uniform float uIntensity;
       uniform float uLength;
+      uniform float uNearFade;
       varying vec3 vObj;
       varying vec3 vNormalV;
       varying vec3 vPosV;
@@ -54,7 +58,10 @@ export function makeLightCone(opts: ConeOpts): THREE.Mesh {
         float n = sin(vObj.x * 2.4 + uTime * 0.7) * sin(vObj.y * 2.1 - uTime * 0.5)
                 * sin(vObj.z * 1.3 + uTime * 0.9);
         float dust = 0.82 + 0.18 * n;
-        float a = axial * fres * dust * uIntensity;
+        float nf = uNearFade > 0.001
+          ? smoothstep(uNearFade * 0.25, uNearFade, length(vPosV))
+          : 1.0;
+        float a = axial * fres * dust * uIntensity * nf;
         gl_FragColor = vec4(uColor * a, a);
       }
     `,

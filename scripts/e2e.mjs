@@ -48,7 +48,9 @@ try {
   await waitFor('phase_explore', `window.__dd && window.__dd.sm().phase === 'explore'`, 15);
   await evalJs('window.__dd.speed(5)');
 
-  // 游动输入正常推进
+  // 游动输入正常推进（出生点在竖井内仰望，先传送到隧道内使朝向沿切线）
+  await evalJs('window.__dd.teleport(0.02)');
+  await page.waitForTimeout(400);
   const t0 = await evalJs('window.__dd.sm().progressT');
   await page.keyboard.down('w');
   await page.waitForTimeout(2500);
@@ -63,8 +65,8 @@ try {
   }
   await check('still_explore', (await evalJs('window.__dd.sm().phase')) === 'explore');
 
-  // 触发惊吓（节拍 t=0.75）→ 序列推进到缺氧
-  await evalJs('window.__dd.teleport(0.76)');
+  // 触发惊吓（节拍 t=0.795）→ 序列推进到缺氧
+  await evalJs('window.__dd.teleport(0.8)');
   await waitFor('phase_scare', `window.__dd.sm().phase === 'scare'`, 10);
   await waitFor('scare_reveal', `window.__dd.sm().seqStep >= 4`, 30);
   await shot('scare_reveal');

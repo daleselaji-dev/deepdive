@@ -82,7 +82,10 @@ export class FishSchool {
       this.tangent.set(-Math.sin(f.theta), bob * 0.15, Math.cos(f.theta)).normalize();
       this.q.setFromUnitVectors(this.mZ, this.tangent);
       const wiggle = Math.sin(time * 9 + f.phase) * 0.22;
-      this.sc.setScalar(f.scale);
+      // 贴脸消隐：距玩家 <1.4m 平滑缩为 0，避免巨型近景剪影糊屏
+      const dp = this.p.distanceTo(playerPos);
+      const avoid = dp >= 1.4 ? 1 : Math.max(0, (dp - 0.5) / 0.9);
+      this.sc.setScalar(f.scale * avoid * avoid);
       this.m.compose(this.p, this.q, this.sc);
       // 尾部摆动：绕 y 微旋
       const rotY = new THREE.Matrix4().makeRotationY(wiggle);

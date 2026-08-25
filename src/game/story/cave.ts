@@ -248,13 +248,13 @@ export class CaveSystem {
     this.buildGuideline();
     this.buildSpeleothems(quality);
 
-    // 出生点：竖井底部（第一眼可仰望水面与光柱），转身即是隧道
-    this.spawnPos.set(0, -2.7, -0.5);
+    // 出生点：井筒水柱内（刚入水），正仰望焦散水面盘——首屏奇观；下潜穿过井底即隧道
+    this.spawnPos.set(0, 0.6, 0);
 
-    // 入口天光
-    const spot = new THREE.SpotLight(0x9fe0ff, 52, 58, 0.5, 0.85, 1.5);
-    spot.position.set(0, 8, 2);
-    spot.target.position.set(1, -14, -22);
+    // 入口天光：从水面正上方垂直下照——光柱进井、四壁均匀，不再把单侧井壁打爆
+    const spot = new THREE.SpotLight(0x9fe0ff, 52, 58, 0.42, 0.9, 1.5);
+    spot.position.set(0, 14, 0);
+    spot.target.position.set(0, -4, 3);
     this.group.add(spot, spot.target);
     this.entranceLight = spot;
 
@@ -530,6 +530,7 @@ export class CaveSystem {
         radius: 1.6 + i * 1.4,
         color: 0x8fd8f0,
         intensity: 0.105 - i * 0.028,
+        nearFade: 3.4,
       });
       cone.position.set((i - 1) * 1.1, 7.5, (i - 1) * 0.8);
       cone.rotateX(-Math.PI / 2 + (i - 1) * 0.1);
@@ -550,11 +551,11 @@ export class CaveSystem {
 
     // 主光柱（体积锥）+ 内芯亮柱
     const len = this.shaftTop.distanceTo(this.shaftFloor) + 3;
-    const beam = makeLightCone({ length: len, radius: 2.6, color: 0x9fdcf0, intensity: 0.075 });
+    const beam = makeLightCone({ length: len, radius: 2.6, color: 0x9fdcf0, intensity: 0.075, nearFade: 3.2 });
     beam.position.copy(this.shaftTop);
     beam.rotateX(-Math.PI / 2);
     this.group.add(beam);
-    const core = makeLightCone({ length: len * 0.92, radius: 1.1, color: 0xcdeef8, intensity: 0.17 });
+    const core = makeLightCone({ length: len * 0.92, radius: 1.1, color: 0xcdeef8, intensity: 0.17, nearFade: 3.2 });
     core.position.copy(this.shaftTop);
     core.rotateX(-Math.PI / 2);
     this.group.add(core);

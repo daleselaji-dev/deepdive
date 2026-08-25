@@ -190,7 +190,7 @@ export class StoryMode implements GameMode {
     this.vel.set(0, 0, 0);
     // 入水第一眼：仰望水面与下泻光柱（首屏奇观），转身向下即是黑暗的隧道
     this.yaw = Math.PI;
-    this.pitch = 1.28;
+    this.pitch = 1.45;
     this.sampleIdx = 8;
     this.o2 = MAX_O2;
     this.battery = 1;
@@ -405,6 +405,22 @@ export class StoryMode implements GameMode {
     // 洞壁约束
     const near = this.cave.nearest(this.pos, this.sampleIdx);
     this.sampleIdx = near.idx;
+    // 入口竖井自由水体：井筒内（隧道管顶之上）可自由升降、贴近水面盘，不被隧道管吸回
+    if (near.idx < 60 && this.pos.y > -1.0) {
+      const rXZ = Math.hypot(this.pos.x, this.pos.z);
+      if (rXZ < 3.4) {
+        if (rXZ > 3.2) {
+          const k = 3.2 / rXZ;
+          this.pos.x *= k; this.pos.z *= k;
+          const nx = this.pos.x / 3.2, nz = this.pos.z / 3.2;
+          const vOut = this.vel.x * nx + this.vel.z * nz;
+          if (vOut > 0) { this.vel.x -= vOut * nx; this.vel.z -= vOut * nz; }
+        }
+        if (this.pos.y > 8.4) { this.pos.y = 8.4; if (this.vel.y > 0) this.vel.y = 0; }
+        this.applyCamera();
+        return;
+      }
+    }
     const s = near.sample;
     const radial = this.tmpV2.copy(this.pos).sub(s.pos);
     let along = radial.dot(s.tangent);
