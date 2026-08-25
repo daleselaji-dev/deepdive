@@ -23,6 +23,10 @@ export interface Interactable {
   prompt: string;
   used: boolean;
   lines: string[];
+  /** 案件档案标题。 */
+  title: string;
+  /** 档案里的侦探批注。 */
+  note: string;
 }
 
 const PATH_POINTS: [number, number, number][] = [
@@ -81,6 +85,7 @@ export class CaveSystem {
   private matHandle!: CaveMaterialHandle;
   private surfaceMat: THREE.ShaderMaterial | null = null;
   private entranceCones: THREE.Mesh[] = [];
+  private floatingMask: THREE.Group | null = null;
 
   constructor(quality: QualitySettings, seed = 20260825) {
     this.noise = new Simplex3(seed);
@@ -417,11 +422,39 @@ export class CaveSystem {
       this.group.add(plate);
       this.interactables.push({
         id: 'tag', pos: plate.position.clone(), radius: 2.0, used: false,
-        prompt: '查看铭牌',
+        prompt: '查看铭牌', title: '线绳铭牌「E.V.」',
+        note: '钢印，32m 深度标记。线是埃利亚斯布的——布线的人打算回来。',
         lines: [
           '铭牌：**E.V. — 32m**。字是钢印的，边缘已经起了钙壳。',
           '埃利亚斯·凡恩到过这里。线绳是他布的。',
           '委托人说他哥哥"做事有始有终"。有始有终的人不会不回来。',
+        ],
+      });
+    }
+    // 线索2：岩壁抓痕（咽喉段）
+    {
+      const t = 0.27;
+      const s = this.sampleAtT(t);
+      const side = new THREE.Vector3().crossVectors(s.tangent, s.down).normalize();
+      const base = s.pos.clone().addScaledVector(side, s.radius * 0.82);
+      const grooveMat = new THREE.MeshStandardMaterial({ color: 0x1c1713, roughness: 1 });
+      for (let i = 0; i < 3; i++) {
+        const groove = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.35, 0.05), grooveMat);
+        groove.position.copy(base)
+          .addScaledVector(s.tangent, (i - 1) * 0.17)
+          .addScaledVector(side, -0.06);
+        groove.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), s.down.clone().negate());
+        groove.rotateZ(0.28 + i * 0.04);
+        this.group.add(groove);
+      }
+      this.interactables.push({
+        id: 'scratch', pos: base.clone(), radius: 2.2, used: false,
+        prompt: '查看岩壁刻痕', title: '三道平行刻痕',
+        note: '太深、太宽、间距太规律。不是工具。也最好不是手指。',
+        lines: [
+          '岩壁上有三道平行的刻痕。齐肩高，比刀口宽，比凿子深。',
+          '洞潜员有时用刀在岩壁做记号。一道，指向出口。',
+          '**没有人需要三道。**',
         ],
       });
     }
@@ -460,11 +493,85 @@ export class CaveSystem {
 
       this.interactables.push({
         id: 'computer', pos: comp.position.clone(), radius: 2.2, used: false,
-        prompt: '查看潜水电脑',
+        prompt: '查看潜水电脑', title: '还在计时的潜水电脑',
+        note: '深度 52.6m，下潜时间 19 天。它还以为主人在潜水。或者它是对的。',
         lines: [
           '一台潜水电脑，表带断了。屏幕还活着：**深度 52.6m，下潜时间 19 天 06:41:12**。',
           '计时没有停。它还以为主人在潜水。',
           '……或者它是对的。',
+        ],
+      });
+    }
+    // 线索5：悬浮的潜水面镜
+    {
+      const t = 0.47;
+      const s = this.sampleAtT(t);
+      const p = s.pos.clone().addScaledVector(s.down, -s.radius * 0.1);
+      const mask = new THREE.Group();
+      const frame = new THREE.Mesh(
+        new THREE.TorusGeometry(0.09, 0.022, 8, 20),
+        new THREE.MeshStandardMaterial({ color: 0x14161a, roughness: 0.5 })
+      );
+      frame.scale.set(1.5, 1, 1);
+      mask.add(frame);
+      const lens = new THREE.Mesh(
+        new THREE.CircleGeometry(0.085, 18),
+        new THREE.MeshStandardMaterial({
+          color: 0x2a3d48, roughness: 0.12, metalness: 0.8,
+          transparent: true, opacity: 0.85,
+        })
+      );
+      lens.scale.set(1.5, 1, 1);
+      mask.add(lens);
+      const strap = new THREE.Mesh(
+        new THREE.TorusGeometry(0.11, 0.012, 6, 18, Math.PI),
+        new THREE.MeshStandardMaterial({ color: 0x232019, roughness: 0.9 })
+      );
+      strap.rotation.set(Math.PI / 2, 0, Math.PI);
+      strap.position.z = -0.05;
+      mask.add(strap);
+      mask.position.copy(p);
+      mask.rotation.set(0.4, 0.8, 0.15);
+      this.group.add(mask);
+      this.floatingMask = mask;
+      this.interactables.push({
+        id: 'mask', pos: p.clone(), radius: 2.0, used: false,
+        prompt: '查看面镜', title: '悬浮的潜水面镜',
+        note: '镜带完好、扣具锁着。不是被水流扯掉的——是自己摘下来的。',
+        lines: [
+          '一只面镜，悬在水中层。镜带完好，扣具还锁着。',
+          '被水流扯掉的面镜不长这样。**这是自己摘下来的。**',
+          '在五十米深的黑水里，没有人会自己摘面镜。除非他看到了不需要眼睛也能看到的东西。',
+        ],
+      });
+    }
+    // 线索6：录音潜水记录仪
+    {
+      const t = 0.52;
+      const s = this.sampleAtT(t);
+      const p = s.pos.clone().addScaledVector(s.down, s.radius * 0.78);
+      const rec = new THREE.Mesh(
+        new THREE.BoxGeometry(0.2, 0.09, 0.13),
+        new THREE.MeshStandardMaterial({ color: 0x8a7220, roughness: 0.55, metalness: 0.25 })
+      );
+      rec.position.copy(p).add(new THREE.Vector3(0, 0.05, 0));
+      rec.rotation.set(0.15, 1.9, 0.1);
+      this.group.add(rec);
+      const led = new THREE.Mesh(
+        new THREE.SphereGeometry(0.014, 8, 8),
+        new THREE.MeshStandardMaterial({ color: 0x041104, emissive: 0x2aff55, emissiveIntensity: 2.2 })
+      );
+      led.position.copy(rec.position).add(new THREE.Vector3(0.07, 0.05, 0.02));
+      this.group.add(led);
+      this.interactables.push({
+        id: 'recorder', pos: rec.position.clone(), radius: 2.2, used: false,
+        prompt: '播放录音记录仪', title: '录音潜水记录仪',
+        note: '最后一段录音：四十分钟水声，第三十九分钟——有人在水里说话。和寄给委托人的那盘一样。',
+        lines: [
+          '一台录音记录仪，防水壳。绿灯还亮着——**还在录**。',
+          '（回放：水声。呼吸。很长的水声。）',
+          '（第三十九分钟：一个不通过空气传播的声音，说了一个词。）',
+          '和磁带上的一样。它说的是：「**下来**」。',
         ],
       });
     }
@@ -474,12 +581,45 @@ export class CaveSystem {
       const p = s.pos.clone().addScaledVector(s.down, s.radius * 0.4);
       this.interactables.push({
         id: 'cutline', pos: p, radius: 2.4, used: false,
-        prompt: '查看断绳',
+        prompt: '查看断绳', title: '被割断的主线绳',
+        note: '断口平整。割绳的人，已经不打算回去了。',
         lines: [
           '主线绳到此为止。断口平整——不是磨断的，是**割**断的。',
           '洞潜员宁可割掉自己的手指，也不会割断自己的命脉。',
           '除非，割绳的时候，他已经不打算回去了。',
           '（线绳没了。沿着断口的方向继续。）',
+        ],
+      });
+    }
+    // 线索8：埃利亚斯的减压气瓶站
+    {
+      const t = 0.6;
+      const s = this.sampleAtT(t);
+      const side = new THREE.Vector3().crossVectors(s.tangent, s.down).normalize();
+      const base = s.pos.clone()
+        .addScaledVector(s.down, s.radius * 0.68)
+        .addScaledVector(side, s.radius * 0.3);
+      const tankMat = new THREE.MeshStandardMaterial({ color: 0x5a6c14, roughness: 0.45, metalness: 0.55 });
+      for (let i = 0; i < 2; i++) {
+        const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.72, 14), tankMat);
+        tank.position.copy(base).addScaledVector(s.tangent, i * 0.34);
+        tank.rotation.set(0.25 + i * 0.5, i * 1.2, 0.9);
+        this.group.add(tank);
+        const valve = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.03, 0.03, 0.1, 8),
+          new THREE.MeshStandardMaterial({ color: 0x9aa4aa, roughness: 0.3, metalness: 0.8 })
+        );
+        valve.position.copy(tank.position).add(new THREE.Vector3(0.28 - i * 0.1, 0.16, 0));
+        this.group.add(valve);
+      }
+      this.interactables.push({
+        id: 'tanks', pos: base.clone(), radius: 2.4, used: false,
+        prompt: '检查减压瓶', title: '减压气瓶站',
+        note: '两支铝瓶，阀门全开，气放光了。是放，不是漏。里面还剩一口——我拿走了。',
+        lines: [
+          '两支减压瓶，标准的返程配置。他把回家的路铺到了这里。',
+          '阀门**全开**。气不是用光的，是放光的。',
+          '有人不想让任何人靠这两支瓶子回去。……瓶底还剩一口，我收下了。',
         ],
       });
     }
@@ -502,6 +642,11 @@ export class CaveSystem {
     for (let i = 0; i < this.entranceCones.length; i++) {
       const breath = 1 + 0.22 * Math.sin(time * 0.4 + i * 1.9);
       tickCone(this.entranceCones[i], time, (0.11 - i * 0.022) * breath);
+    }
+    if (this.floatingMask) {
+      this.floatingMask.rotation.y = time * 0.21;
+      this.floatingMask.rotation.x = 0.4 + Math.sin(time * 0.5) * 0.14;
+      this.floatingMask.position.y += Math.sin(time * 0.63) * 0.0008;
     }
     this.matHandle.tick(time, playerPos);
   }

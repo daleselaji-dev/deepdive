@@ -1,4 +1,4 @@
-/** HUD：氧气表 / 深度计 / 字幕队列 / 目标 / 交互提示 / 介绍卡 / 淡入淡出 / 致谢。 */
+/** HUD：氧气表 / 灯电量 / 深度计 / 字幕队列 / 目标 / 交互提示 / 案件档案 / 介绍卡 / 淡入淡出 / 致谢。 */
 
 interface SubEntry {
   text: string;
@@ -6,11 +6,19 @@ interface SubEntry {
   cls: string;
 }
 
+export interface JournalEntry {
+  title: string;
+  note: string;
+  collected: boolean;
+}
+
 export class Hud {
   private root: HTMLDivElement;
   private o2Fill: HTMLDivElement;
   private o2Text: HTMLDivElement;
   private o2Box: HTMLDivElement;
+  private battBox: HTMLDivElement;
+  private battFill: HTMLDivElement;
   private depthText: HTMLDivElement;
   private subEl: HTMLDivElement;
   private objEl: HTMLDivElement;
@@ -19,6 +27,11 @@ export class Hud {
   private cardsEl: HTMLDivElement;
   private creditsEl: HTMLDivElement;
   private reticle: HTMLDivElement;
+  private clueBox: HTMLDivElement;
+  private notifyEl: HTMLDivElement;
+  private journalEl: HTMLDivElement;
+  private notifyTimer = 0;
+  journalOpen = false;
 
   private subQueue: SubEntry[] = [];
   private subTimer = 0;
@@ -28,12 +41,21 @@ export class Hud {
     this.root = document.createElement('div');
     this.root.id = 'hud';
     this.root.innerHTML = `
-      <div class="o2-box">
-        <div class="o2-label">O₂</div>
-        <div class="o2-bar"><div class="o2-fill"></div></div>
-        <div class="o2-psi">3100</div>
+      <div class="gauge-row">
+        <div class="o2-box">
+          <div class="o2-label">O₂</div>
+          <div class="o2-bar"><div class="o2-fill"></div></div>
+          <div class="o2-psi">3100</div>
+        </div>
+        <div class="batt-box">
+          <div class="o2-label">灯</div>
+          <div class="o2-bar"><div class="batt-fill"></div></div>
+          <div class="o2-psi batt-pct">100</div>
+        </div>
       </div>
       <div class="depth-box">— 0 m</div>
+      <div class="clue-box">档案 0/8</div>
+      <div class="clue-notify"></div>
       <div class="objective"></div>
       <div class="subtitle"></div>
       <div class="prompt"></div>
@@ -43,11 +65,19 @@ export class Hud {
     this.o2Box = this.root.querySelector('.o2-box')!;
     this.o2Fill = this.root.querySelector('.o2-fill')!;
     this.o2Text = this.root.querySelector('.o2-psi')!;
+    this.battBox = this.root.querySelector('.batt-box')!;
+    this.battFill = this.root.querySelector('.batt-fill')!;
     this.depthText = this.root.querySelector('.depth-box')!;
     this.subEl = this.root.querySelector('.subtitle')!;
     this.objEl = this.root.querySelector('.objective')!;
     this.promptEl = this.root.querySelector('.prompt')!;
     this.reticle = this.root.querySelector('.reticle')!;
+    this.clueBox = this.root.querySelector('.clue-box')!;
+    this.notifyEl = this.root.querySelector('.clue-notify')!;
+
+    this.journalEl = document.createElement('div');
+    this.journalEl.id = 'journal';
+    parent.appendChild(this.journalEl);
 
     this.fadeEl = document.createElement('div');
     this.fadeEl.id = 'fade';
@@ -66,12 +96,16 @@ export class Hud {
 
   setVisible(v: boolean) {
     this.root.style.display = v ? 'block' : 'none';
+    if (!v) this.closeJournal();
   }
 
   setGaugesVisible(v: boolean) {
     this.o2Box.style.display = v ? 'flex' : 'none';
+    this.battBox.style.display = v ? 'flex' : 'none';
     this.depthText.style.display = v ? 'block' : 'none';
     this.reticle.style.display = v ? 'block' : 'none';
+    this.clueBox.style.display = v ? 'block' : 'none';
+    if (!v) this.closeJournal();
   }
 
   setO2(psi: number, max = 3100) {
@@ -84,6 +118,54 @@ export class Hud {
 
   setDepth(m: number) {
     this.depthText.textContent = `— ${Math.max(0, Math.round(m))} m`;
+  }
+
+  /** 手电电量 0..1。 */
+  setBattery(x: number) {
+    const k = Math.max(0, Math.min(1, x));
+    this.battFill.style.height = `${k * 100}%`;
+    this.battFill.style.background = k < 0.25 ? '#c33' : '#d9c47a';
+    (this.battBox.querySelector('.batt-pct') as HTMLDivElement).textContent =
+      `${Math.round(k * 100)}`;
+    this.battBox.classList.toggle('warn', k < 0.25);
+  }
+
+  setClues(n: number, total: number) {
+    this.clueBox.textContent = `档案 ${n}/${total}`;
+  }
+
+  /** 收录线索时的滑入通知。 */
+  notifyClue(title: string) {
+    this.notifyEl.textContent = `✚ 已收录 · ${title}`;
+    this.notifyEl.classList.add('show');
+    this.notifyTimer = 3.6;
+  }
+
+  /** 案件档案面板开关；返回当前是否打开。 */
+  toggleJournal(entries: JournalEntry[]): boolean {
+    if (this.journalOpen) {
+      this.closeJournal();
+      return false;
+    }
+    const items = entries.map((e) => e.collected
+      ? `<div class="j-item"><div class="j-title">◆ ${e.title}</div><div class="j-note">${e.note}</div></div>`
+      : `<div class="j-item j-locked"><div class="j-title">◇ ——</div><div class="j-note">未收录</div></div>`
+    ).join('');
+    const n = entries.filter((e) => e.collected).length;
+    this.journalEl.innerHTML = `
+      <div class="j-inner">
+        <div class="j-head">案件档案 · 蓝井失踪案<span class="j-count">${n}/${entries.length}</span></div>
+        <div class="j-list">${items}</div>
+        <div class="j-hint">Tab / 「档」 关闭</div>
+      </div>`;
+    this.journalEl.style.display = 'flex';
+    this.journalOpen = true;
+    return true;
+  }
+
+  closeJournal() {
+    this.journalEl.style.display = 'none';
+    this.journalOpen = false;
   }
 
   /** 入队字幕。style: mono=提示/monologue 默认, creature=生物之声 */
@@ -116,6 +198,10 @@ export class Hud {
   }
 
   update(dt: number) {
+    if (this.notifyTimer > 0) {
+      this.notifyTimer -= dt;
+      if (this.notifyTimer <= 0) this.notifyEl.classList.remove('show');
+    }
     if (this.subActive) {
       this.subTimer -= dt;
       if (this.subTimer <= 0) {

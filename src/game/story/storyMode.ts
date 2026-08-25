@@ -61,6 +61,14 @@ export class StoryMode implements GameMode {
   private lampDim = 1;
   private flickerLeft = 0;
   private lampEffective = 1;
+  private battery = 1;         // 手电电量 0..1：常亮约 9 分钟；关灯缓慢回充
+  private batteryHinted = false;
+
+  // 探索玩法
+  private clueCount = 0;
+  private o2Bonus = 0;         // 减压瓶补氧
+  private stir = 0;            // 扬泥 0..1：贴底猛游会糊掉能见度
+  private stirHinted = false;
   private spotBase = 60;
   private fillBase = 2.5;
   private spot!: THREE.SpotLight;
@@ -111,6 +119,18 @@ export class StoryMode implements GameMode {
 
     this.spectacle = new Spectacle(this.cave, q);
     this.scene.add(this.spectacle.group);
+
+    // 线索4：气室水膜（位置由奇观系统决定，插到潜水电脑之后保持路线顺序）
+    this.cave.interactables.splice(3, 0, {
+      id: 'airdome', pos: this.spectacle.airdomePos.clone(), radius: 3.4, used: false,
+      prompt: '仰望气室', title: '被困住的空气',
+      note: '穹顶上一面银镜——几百年的死空气。抬头时，镜子里的光斑比我的手电多了一个。',
+      lines: [
+        '洞顶扣着一泡空气，像一面倒挂的银镜。几百年没人呼吸过它。',
+        '手电照上去，镜面晃出一个光斑。……**两个**光斑。',
+        '我只有一支手电。我把这条也记进档案，然后不再抬头。',
+      ],
+    });
 
     this.ambientLight = new THREE.AmbientLight(0x2b4a52, 0.4);
     this.scene.add(this.ambientLight);
@@ -284,6 +304,8 @@ export class StoryMode implements GameMode {
 
     switch (this.phase) {
       case 'explore':
+        this.handleJournal();
+        if (this.ctx.hud.journalOpen) { this.applyCamera(); break; }
         this.updateSwim(dt, 1);
         this.updateProgress();
         this.updateBeats();
@@ -392,6 +414,19 @@ export class StoryMode implements GameMode {
     if (near.idx >= lastIdx - 2) along = Math.min(along, 0);
     this.pos.copy(s.pos).addScaledVector(s.tangent, along).add(perp);
 
+    // 扬泥：贴底高速游动会搅起沉积物，短暂糊掉能见度
+    if (this.phase === 'explore') {
+      const floorness = perp.dot(s.down) / Math.max(0.001, s.radius);
+      if (speed > 1.45 && floorness > 0.3) {
+        this.stir = Math.min(1, this.stir + dt * 0.9);
+        if (!this.stirHinted && this.stir > 0.55) {
+          this.stirHinted = true;
+          this.ctx.hud.subtitle('蹬起来的泥雾。教科书重复了三遍：**贴壁，慢**。', 5);
+        }
+      }
+    }
+    this.stir = Math.max(0, this.stir - dt * 0.16);
+
     this.applyCamera();
   }
 
@@ -433,6 +468,26 @@ export class StoryMode implements GameMode {
       this.lampOn = !this.lampOn;
       this.ctx.audio.tick(0.12);
     }
+    // 电量决策：常亮约 9 分钟；关灯缓慢回充（仅探索阶段，不干扰脚本演出）
+    if (this.phase === 'explore') {
+      if (this.lampOn && !this.lampForcedOff) {
+        this.battery = Math.max(0, this.battery - dt / 540);
+      } else {
+        this.battery = Math.min(1, this.battery + dt / 300);
+      }
+      if (this.battery <= 0.001 && this.lampOn) {
+        this.lampOn = false;
+        this.ctx.audio.tick(0.15);
+        this.ctx.hud.subtitle('手电死了。让它歇一会儿——或者摸黑。', 5);
+      }
+      if (this.battery < 0.25 && this.lampOn && this.flickerLeft <= 0 && Math.random() < dt * 0.35) {
+        this.flickerLeft = 0.35;
+        if (!this.batteryHinted) {
+          this.batteryHinted = true;
+          this.ctx.hud.subtitle('（电量在掉。F 关灯省电，或者赌它撑到底。）', 5, 'mono');
+        }
+      }
+    }
     let f = this.lampOn && !this.lampForcedOff ? 1 : 0;
     if (this.flickerLeft > 0 && f > 0) {
       this.flickerLeft -= dt;
@@ -440,7 +495,7 @@ export class StoryMode implements GameMode {
       f = g > -0.35 ? 1 : 0.12;
       if (Math.random() < dt * 6) this.ctx.audio.tick(0.05);
     }
-    f *= this.lampDim;
+    f *= this.lampDim * (0.55 + 0.45 * Math.min(1, this.battery * 4));
     this.lampEffective = damp(this.lampEffective, f, 18, dt);
     this.spot.intensity = this.spotBase * this.lampEffective;
     this.fill.intensity = this.fillBase * Math.max(this.lampEffective, 0.12);
@@ -450,25 +505,27 @@ export class StoryMode implements GameMode {
 
   private updateEnv(dt: number, t: number) {
     const fog = this.scene.fog as THREE.FogExp2;
-    fog.density = damp(fog.density, this.fogTargetDensity, 1.2, dt);
+    fog.density = damp(fog.density, this.fogTargetDensity + this.stir * 0.08, 1.2, dt);
     fog.color.lerp(this.fogTargetColor, Math.min(1, dt * 1.2));
     this.ambientCur = damp(this.ambientCur, this.ambientTarget, 1.5, dt);
     this.ambientLight.intensity = this.ambientCur;
 
     const cam = this.ctx.camera;
     cam.getWorldDirection(this.fwd);
-    this.silt.update(t, cam.position, this.fwd, this.lampEffective, this.ambientCur * 0.22);
+    this.silt.update(t, cam.position, this.fwd, this.lampEffective,
+      this.ambientCur * 0.22 + this.stir * 0.32);
     this.ctx.audio.update(dt);
   }
 
   private updateHud() {
     const hud = this.ctx.hud;
     hud.setO2(this.o2, MAX_O2);
+    hud.setBattery(this.battery);
     hud.setDepth(-this.pos.y);
   }
 
   private updateO2Explore(dt: number) {
-    const base = MAX_O2 - this.progressT * 2100 - this.exertion;
+    const base = Math.min(MAX_O2, MAX_O2 - this.progressT * 2100 - this.exertion + this.o2Bonus);
     this.o2 = Math.max(SCARE_O2 + 30, damp(this.o2, base, 0.8, dt));
   }
 
@@ -497,13 +554,57 @@ export class StoryMode implements GameMode {
         for (const line of found.lines) {
           hud.subtitle(line, Math.max(3.4, line.length * 0.14));
         }
-        if (found.id === 'cutline') this.ctx.audio.setTension(0.55);
+        this.collectClue(found);
         hud.prompt(null);
         this.ctx.input.setInteractVisible(false);
       }
     } else {
       hud.prompt(null);
       this.ctx.input.setInteractVisible(false);
+    }
+  }
+
+  /** Tab 开关案件档案。 */
+  private handleJournal() {
+    if (this.ctx.input.consumePressed('Tab')) {
+      const entries = this.cave.interactables.map((i) => ({
+        title: i.title, note: i.note, collected: i.used,
+      }));
+      this.ctx.hud.toggleJournal(entries);
+      this.ctx.audio.uiClick();
+    }
+  }
+
+  /** 收录线索：计数 / 通知 / 各线索的特殊演出。 */
+  private collectClue(it: Interactable) {
+    this.clueCount++;
+    const hud = this.ctx.hud;
+    hud.setClues(this.clueCount, this.cave.interactables.length);
+    hud.notifyClue(it.title);
+    this.ctx.audio.chime(0.055, 2);
+
+    switch (it.id) {
+      case 'cutline':
+        this.ctx.audio.setTension(0.55);
+        break;
+      case 'recorder': {
+        // 回放：磁带底噪 + 无线电杂音 + 一声不属于空气的叩击
+        const audio = this.ctx.audio;
+        audio.setTape(true);
+        audio.radioCrackle(2.2);
+        window.setTimeout(() => audio.knock(1, 0.4), 5200);
+        window.setTimeout(() => audio.setTape(false), 9000);
+        audio.setTension(0.42);
+        break;
+      }
+      case 'tanks':
+        this.o2Bonus = 300;
+        this.ctx.audio.setTension(0.5);
+        break;
+      case 'airdome':
+        this.ctx.audio.eerie(true);
+        window.setTimeout(() => this.ctx.audio.eerie(false), 6000);
+        break;
     }
   }
 
@@ -537,6 +638,7 @@ export class StoryMode implements GameMode {
     this.seqStep = 0;
     this.o2 = SCARE_O2;
     this.ctx.hud.prompt(null);
+    this.ctx.hud.closeJournal();
     this.ctx.input.setInteractVisible(false);
   }
 

@@ -36,7 +36,7 @@ export class Input {
       if (e.repeat) return;
       this.keys.add(e.code);
       this.pressedEdges.add(e.code);
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+      if (['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => this.keys.clear());
@@ -130,6 +130,7 @@ export class Input {
     const upBtn = mkBtn('t-up', '▲');
     const downBtn = mkBtn('t-down', '▼');
     const lampBtn = mkBtn('t-lamp', '灯');
+    const journalBtn = mkBtn('t-journal', '档');
     const pauseBtn = mkBtn('t-pause', 'Ⅱ');
     const interactBtn = mkBtn('t-interact', '查看');
     interactBtn.style.display = 'none';
@@ -146,6 +147,7 @@ export class Input {
       el.addEventListener('touchstart', (e) => { e.preventDefault(); this.pressedEdges.add(code); }, { passive: false });
     };
     tap(lampBtn, 'KeyF');
+    tap(journalBtn, 'Tab');
     tap(pauseBtn, 'Escape');
     tap(interactBtn, 'KeyE');
 
