@@ -1,10 +1,11 @@
 /**
  * 程序化洞穴系统：
  * 样条路径 + 半径剖面 + Simplex 噪声置换的管状几何（内表面）、
- * 主线绳（含 t=0.55 的割断点）、入口竖井与光柱、钟厅石笋、线索道具、碰撞采样。
+ * 湿岩微表面 / 地层分色 / 入口焦散 / 生物膜辉纹（onBeforeCompile 注入）、
+ * 主线绳（含 t=0.55 的割断点）、入口竖井与水面仰视盘、钟厅石笋、线索道具、碰撞采样。
  */
 import * as THREE from 'three';
-import { Simplex3, clamp, lerp } from '../../core/noise';
+import { Simplex3, clamp, lerp, smoothstep } from '../../core/noise';
 import type { QualitySettings } from '../../core/quality';
 import { makeLightCone, makeGlowSprite } from '../../render/volumetric';
 
@@ -22,6 +23,10 @@ export interface Interactable {
   prompt: string;
   used: boolean;
   lines: string[];
+  /** 侦探笔记条目：[标题, 批注]。 */
+  note: [string, string];
+  /** 使用后的玩法效果（storyMode 消费）。 */
+  effect?: 'o2' | 'polypWave';
 }
 
 const PATH_POINTS: [number, number, number][] = [
@@ -51,6 +56,9 @@ const RADIUS_KEYS: [number, number][] = [
 ];
 
 export const LINE_CUT_T = 0.55;
+/** 生物发光廊道区间。 */
+export const GALLERY_T0 = 0.575;
+export const GALLERY_T1 = 0.68;
 const SAMPLE_COUNT = 1400;
 
 function radiusProfile(u: number): number {
@@ -65,6 +73,136 @@ function radiusProfile(u: number): number {
   return keys[keys.length - 1][1];
 }
 
+/** 岩石 shader 注入共享 uniforms。 */
+export interface RockUniforms {
+  uTime: { value: number };
+  uCaustics: { value: number };
+  uBump: { value: number };
+  uGlowBoost: { value: number };
+  uShaftPos: { value: THREE.Vector3 };
+}
+
+/**
+ * 向 MeshStandardMaterial 注入：
+ * - 世界空间高频法线微扰（湿岩细节）
+ * - 湿润度（aWet）调制 roughness → 手电扫出湿石高光
+ * - 入口焦散光斑（世界 y 衰减 + 朝上法线加权）
+ * - 生物膜辉纹（aGlow，青紫脉动，关灯增亮由 uGlowBoost 驱动）
+ */
+function injectRockShader(mat: THREE.MeshStandardMaterial, u: RockUniforms) {
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, u);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', /* glsl */ `
+        #include <common>
+        attribute float aWet;
+        attribute float aGlow;
+        varying vec3 vRockWP;
+        varying float vWet;
+        varying float vGlow;
+      `)
+      .replace('#include <begin_vertex>', /* glsl */ `
+        #include <begin_vertex>
+        vRockWP = (modelMatrix * vec4(position, 1.0)).xyz;
+        vWet = aWet;
+        vGlow = aGlow;
+      `);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', /* glsl */ `
+        #include <common>
+        uniform float uTime;
+        uniform float uCaustics;
+        uniform float uBump;
+        uniform float uGlowBoost;
+        uniform vec3 uShaftPos;
+        varying vec3 vRockWP;
+        varying float vWet;
+        varying float vGlow;
+
+        float rockHash(vec3 p) {
+          return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+        }
+        float rockVNoise(vec3 p) {
+          vec3 i = floor(p), f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          return mix(
+            mix(mix(rockHash(i), rockHash(i + vec3(1.,0.,0.)), f.x),
+                mix(rockHash(i + vec3(0.,1.,0.)), rockHash(i + vec3(1.,1.,0.)), f.x), f.y),
+            mix(mix(rockHash(i + vec3(0.,0.,1.)), rockHash(i + vec3(1.,0.,1.)), f.x),
+                mix(rockHash(i + vec3(0.,1.,1.)), rockHash(i + vec3(1.,1.,1.)), f.x), f.y),
+            f.z);
+        }
+        float rockDetail(vec3 p) {
+          return rockVNoise(p * 2.6) * 0.62 + rockVNoise(p * 8.5) * 0.38;
+        }
+        // 水面折射焦散（干涉纹样，3 次迭代；坐标偏移避开原点，除法有保护，输出钳制防 NaN/inf）
+        float causticPattern(vec2 p, float t) {
+          p += vec2(37.31, 91.17);
+          vec2 i = p;
+          float c = 1.0;
+          float inten = 0.005;
+          for (int n = 0; n < 3; n++) {
+            float ft = t * (1.0 - (3.5 / float(n + 1)));
+            i = p + vec2(cos(ft - i.x) + sin(ft + i.y), sin(ft - i.y) + cos(ft + i.x));
+            vec2 sc = vec2(sin(i.x + ft), cos(i.y + ft)) / inten;
+            sc.x = (sc.x >= 0.0 ? 1.0 : -1.0) * max(abs(sc.x), 1.0);
+            sc.y = (sc.y >= 0.0 ? 1.0 : -1.0) * max(abs(sc.y), 1.0);
+            c += 1.0 / max(length(p / sc), 5e-3);
+          }
+          c /= 3.0;
+          c = 1.17 - pow(clamp(c, 0.0, 8.0), 1.4);
+          return clamp(pow(abs(c), 7.0), 0.0, 1.4);
+        }
+      `)
+      .replace('#include <normal_fragment_begin>', /* glsl */ `
+        #include <normal_fragment_begin>
+        if (uBump > 0.001) {
+          float bmp = uBump * (1.0 - vWet * 0.65);
+          float e = 0.05;
+          float b0 = rockDetail(vRockWP);
+          vec3 grad = vec3(
+            rockDetail(vRockWP + vec3(e, 0.0, 0.0)) - b0,
+            rockDetail(vRockWP + vec3(0.0, e, 0.0)) - b0,
+            rockDetail(vRockWP + vec3(0.0, 0.0, e)) - b0) / e;
+          grad -= normal * dot(grad, normal);
+          normal = normalize(normal - grad * bmp);
+        }
+      `)
+      .replace('#include <roughnessmap_fragment>', /* glsl */ `
+        #include <roughnessmap_fragment>
+        roughnessFactor = mix(roughnessFactor, 0.28, vWet);
+      `)
+      .replace('#include <emissivemap_fragment>', /* glsl */ `
+        #include <emissivemap_fragment>
+        // 焦散：入口浅水区（y > -24，限竖井周边）+ 钟厅天光池（uShaftPos 周围），仅朝上表面
+        if (uCaustics > 0.5) {
+          float entranceFade = smoothstep(-24.0, -5.0, vRockWP.y)
+                             * smoothstep(17.0, 8.0, length(vRockWP.xz));
+          float shaftFade = (1.0 - smoothstep(2.5, 7.5, distance(vRockWP.xz, uShaftPos.xz)))
+                          * smoothstep(uShaftPos.y - 1.0, uShaftPos.y - 14.0, vRockWP.y);
+          float depthFade = max(entranceFade, shaftFade * 0.8);
+          if (depthFade > 0.002) {
+            float nUp = clamp(normal.y, 0.0, 1.0);
+            float upFace = nUp * nUp * 0.95;
+            float ca = causticPattern(vRockWP.xz * 0.85, uTime * 0.42);
+            totalEmissiveRadiance += vec3(0.45, 0.85, 0.95) * ca * depthFade * upFace * 0.12;
+          }
+        }
+        // 生物膜辉纹：稀疏丝缕状青→紫脉动（高频掩码提结构感）
+        if (vGlow > 0.002) {
+          float ph = uTime * 1.25 + vRockWP.x * 0.6 + vRockWP.y * 0.45 + vRockWP.z * 0.35;
+          float pulse = 0.55 + 0.45 * sin(ph);
+          float fil = rockVNoise(vRockWP * 5.0);
+          float vein = smoothstep(0.58, 0.88, rockVNoise(vRockWP * 9.5) * 0.6 + fil * 0.4);
+          vec3 glowCol = mix(vec3(0.10, 0.85, 1.0), vec3(0.55, 0.30, 1.0), fil);
+          totalEmissiveRadiance += glowCol * vGlow * pulse * vein * (0.35 + 0.85 * fil) * uGlowBoost;
+        }
+      `);
+  };
+  // attribute 缺省兜底（竖井几何没有 aWet/aGlow 时由 geometry 补 0）
+  mat.customProgramCacheKey = () => 'rock-injected';
+}
+
 export class CaveSystem {
   readonly group = new THREE.Group();
   readonly samples: CaveSample[] = [];
@@ -73,10 +211,21 @@ export class CaveSystem {
   readonly spawnPos = new THREE.Vector3();
   readonly entranceLight: THREE.SpotLight;
   readonly computerLight: THREE.PointLight;
+  readonly rockUniforms: RockUniforms = {
+    uTime: { value: 0 },
+    uCaustics: { value: 1 },
+    uBump: { value: 0.55 },
+    uGlowBoost: { value: 1 },
+    uShaftPos: { value: new THREE.Vector3(0, -999, 0) },
+  };
+  /** 钟厅天光竖井：光池中心（供鱼群/焦散使用）。 */
+  readonly shaftTop = new THREE.Vector3();
+  readonly shaftFloor = new THREE.Vector3();
 
   private noise: Simplex3;
   private ledMat: THREE.MeshStandardMaterial;
   private danglingLine: THREE.Mesh | null = null;
+  private surfaceMat: THREE.ShaderMaterial | null = null;
 
   constructor(quality: QualitySettings, seed = 20260825) {
     this.noise = new Simplex3(seed);
@@ -85,9 +234,13 @@ export class CaveSystem {
       false, 'centripetal', 0.5
     );
 
+    this.rockUniforms.uCaustics.value = quality.microDetail ? 1 : 0;
+    this.rockUniforms.uBump.value = quality.microDetail ? 0.55 : 0;
+
     this.buildSamples();
     this.buildTunnel(quality);
     this.buildEntrance();
+    this.buildBellShaft();
     this.buildGuideline();
     this.buildSpeleothems(quality);
 
@@ -96,7 +249,7 @@ export class CaveSystem {
     this.spawnPos.copy(s0.pos).addScaledVector(s0.down, -s0.radius * 0.1);
 
     // 入口天光
-    const spot = new THREE.SpotLight(0x9fe0ff, 55, 55, 0.45, 0.9, 1.5);
+    const spot = new THREE.SpotLight(0x9fe0ff, 52, 58, 0.5, 0.85, 1.5);
     spot.position.set(0, 8, 2);
     spot.target.position.set(1, -14, -22);
     this.group.add(spot, spot.target);
@@ -148,6 +301,28 @@ export class CaveSystem {
       0.22 * this.noise.noise(p.x * 0.9, p.y * 0.9, p.z * 0.9);
   }
 
+  /** 生物膜辉光窗口（廊道区间 + 噪声补丁，稀疏化）。 */
+  private glowMask(u: number, p: THREE.Vector3): number {
+    const win = smoothstep(GALLERY_T0 - 0.012, GALLERY_T0 + 0.02, u) *
+      (1 - smoothstep(GALLERY_T1 - 0.02, GALLERY_T1 + 0.012, u));
+    if (win <= 0) return 0;
+    const patch = smoothstep(0.18, 0.62, this.noise.fbm(p.x * 0.42 + 31, p.y * 0.42, p.z * 0.42, 3));
+    return win * patch;
+  }
+
+  /**
+   * 洞壁上一点（几何置换后），angle 为环截面角（0 = 底部），inset 为半径比例。
+   * 供水螅体点阵 / 道具贴壁使用。
+   */
+  wallPoint(t: number, angle: number, inset = 0.96): THREE.Vector3 {
+    const s = this.sampleAtT(t);
+    const side = new THREE.Vector3().crossVectors(s.tangent, s.down).normalize();
+    const dir = s.down.clone().multiplyScalar(Math.cos(angle)).addScaledVector(side, Math.sin(angle));
+    const base = s.pos.clone().addScaledVector(dir, s.radius);
+    const n = this.wallNoise(base);
+    return s.pos.clone().addScaledVector(dir, s.radius * (1 + 0.3 * n) * inset);
+  }
+
   // ---------- 几何 ----------
 
   private buildTunnel(q: QualitySettings) {
@@ -157,12 +332,16 @@ export class CaveSystem {
     const vertCount = (seg + 1) * (rad + 1);
     const positions = new Float32Array(vertCount * 3);
     const colors = new Float32Array(vertCount * 3);
+    const wet = new Float32Array(vertCount);
+    const glow = new Float32Array(vertCount);
     const indices: number[] = [];
     const tmp = new THREE.Vector3();
     const dir = new THREE.Vector3();
 
-    const cA = new THREE.Color(0x8a7a63); // 暖褐岩
-    const cB = new THREE.Color(0x8fa0aa); // 冷灰岩
+    const cA = new THREE.Color(0x8a7a63);    // 暖褐岩
+    const cB = new THREE.Color(0x8fa0aa);    // 冷灰岩
+    const cRust = new THREE.Color(0x6e4f38); // 铁锈层
+    const cDark = new THREE.Color(0x3d3a36); // 锰黑层
     const cAlgae = new THREE.Color(0x5f8a5c); // 入口藻绿
     const col = new THREE.Color();
 
@@ -179,7 +358,8 @@ export class CaveSystem {
         const n = this.wallNoise(tmp);
         const r = rBase * (1 + 0.3 * n);
         tmp.copy(C).addScaledVector(dir, r);
-        const vi = (i * (rad + 1) + j) * 3;
+        const k = i * (rad + 1) + j;
+        const vi = k * 3;
         positions[vi] = tmp.x;
         positions[vi + 1] = tmp.y;
         positions[vi + 2] = tmp.z;
@@ -188,13 +368,30 @@ export class CaveSystem {
         const n3 = this.noise.noise(tmp.x * 1.7, tmp.y * 1.7 + 9, tmp.z * 1.7);
         // 凹陷处更暗（廉价 AO），高频噪声提对比
         const crevice = 0.5 + 0.5 * clamp(n * 0.9 + 0.5, 0, 1);
-        col.copy(cA).lerp(cB, n2 * 0.5 + 0.5)
-          .multiplyScalar((0.62 + 0.38 * (n3 * 0.5 + 0.5)) * crevice);
+        col.copy(cA).lerp(cB, n2 * 0.5 + 0.5);
+        // 地质分层：沿高度的条带（弯折由低频噪声驱动）
+        const bend = this.noise.noise(tmp.x * 0.05, tmp.y * 0.05, tmp.z * 0.05) * 3.0;
+        const band = Math.sin(tmp.y * 0.55 + bend);
+        if (band > 0.55) col.lerp(cRust, (band - 0.55) * 1.4);
+        else if (band < -0.62) col.lerp(cDark, (-band - 0.62) * 1.6);
+        col.multiplyScalar((0.62 + 0.38 * (n3 * 0.5 + 0.5)) * crevice);
         // 入口上半部藻绿
         if (u < 0.1 && dir.y > 0.1) {
           col.lerp(cAlgae, (0.1 - u) * 8 * dir.y);
         }
         colors[vi] = col.r; colors[vi + 1] = col.g; colors[vi + 2] = col.b;
+
+        // 湿润度：大尺度补丁 + 下半侧渗水加权 + 凹陷积水
+        const wetPatch = smoothstep(0.02, 0.5, this.noise.fbm(tmp.x * 0.07 + 90, tmp.y * 0.07, tmp.z * 0.07, 3));
+        const seep = dir.y < 0 ? 0.28 : 0;
+        wet[k] = clamp(wetPatch * 0.85 + seep + Math.max(0, -n) * 0.3, 0, 1);
+        // 生物膜辉光掩码（廊道）
+        glow[k] = this.glowMask(u, tmp);
+        // 生物膜处岩面染深蓝黑，衬托辉光
+        if (glow[k] > 0.01) {
+          col.setRGB(colors[vi], colors[vi + 1], colors[vi + 2]).lerp(new THREE.Color(0x0a1418), glow[k] * 0.7);
+          colors[vi] = col.r; colors[vi + 1] = col.g; colors[vi + 2] = col.b;
+        }
       }
     }
     for (let i = 0; i < seg; i++) {
@@ -207,46 +404,92 @@ export class CaveSystem {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geo.setAttribute('aWet', new THREE.BufferAttribute(wet, 1));
+    geo.setAttribute('aGlow', new THREE.BufferAttribute(glow, 1));
     geo.setIndex(indices);
     geo.computeVertexNormals();
 
-    // 注意：该索引绕序生成的面朝向隧道内部，因此用 FrontSide 渲染内壁
+    // 注意：该索引绕序生成的面朝向隧道内部，因此用 FrontSide 渲染内壁。
+    // 平滑法线 + 片元级法线微扰（湿岩细节）取代旧 flatShading。
     const mat = new THREE.MeshStandardMaterial({
       vertexColors: true,
       roughness: 0.92,
       metalness: 0.04,
       side: THREE.FrontSide,
-      flatShading: true,
     });
+    injectRockShader(mat, this.rockUniforms);
     const mesh = new THREE.Mesh(geo, mat);
     mesh.frustumCulled = false;
     this.group.add(mesh);
   }
 
-  /** 入口竖井 + 水面辉光 + 光柱。 */
+  /** 入口竖井 + 水面仰视盘 + 光柱。 */
   private buildEntrance() {
     const shaft = new THREE.CylinderGeometry(3.6, 4.4, 12, 20, 8, true);
     shaft.translate(0, 2, 0);
     const pos = shaft.attributes.position as THREE.BufferAttribute;
     const v = new THREE.Vector3();
+    const wet = new Float32Array(pos.count);
+    const glow = new Float32Array(pos.count);
     for (let i = 0; i < pos.count; i++) {
       v.fromBufferAttribute(pos, i);
       const n = this.wallNoise(v);
       const rl = Math.hypot(v.x, v.z) || 1;
       const k = 1 + 0.22 * n;
       pos.setXYZ(i, (v.x / rl) * rl * k, v.y, (v.z / rl) * rl * k);
+      wet[i] = 0.75; // 竖井常年湿润
     }
+    shaft.setAttribute('aWet', new THREE.BufferAttribute(wet, 1));
+    shaft.setAttribute('aGlow', new THREE.BufferAttribute(glow, 1));
     shaft.computeVertexNormals();
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x6f7a6e, roughness: 0.9, metalness: 0.05, side: THREE.BackSide, flatShading: true,
+      color: 0x6f7a6e, roughness: 0.9, metalness: 0.05, side: THREE.BackSide,
     });
+    injectRockShader(mat, this.rockUniforms);
     const mesh = new THREE.Mesh(shaft, mat);
     this.group.add(mesh);
 
+    // 水面仰视盘：从下方看向明亮摇曳的水面（HDR 亮度喂给 Bloom）
+    this.surfaceMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      uniforms: { uTime: { value: 0 } },
+      vertexShader: /* glsl */ `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform float uTime;
+        varying vec2 vUv;
+        void main() {
+          vec2 p = (vUv - 0.5) * 11.0;
+          float w = sin(p.x * 3.1 + uTime * 1.7) * sin(p.y * 2.7 - uTime * 1.3)
+                  + sin(length(p) * 4.2 - uTime * 2.1) * 0.55
+                  + sin(p.x * 7.7 - uTime * 2.6) * sin(p.y * 6.3 + uTime * 1.9) * 0.35;
+          float radial = 1.0 - clamp(length(vUv - 0.5) * 2.0, 0.0, 1.0);
+          float bright = pow(radial, 1.35);
+          float glint = pow(clamp(w * 0.5 + 0.5, 0.0, 1.0), 3.0);
+          vec3 col = mix(vec3(0.10, 0.55, 0.75), vec3(0.85, 1.05, 1.15), glint);
+          float a = bright * (0.4 + 0.5 * glint);
+          gl_FragColor = vec4(col * a * 2.6, a);
+        }
+      `,
+    });
+    const surf = new THREE.Mesh(new THREE.CircleGeometry(4.8, 48), this.surfaceMat);
+    surf.rotation.x = Math.PI / 2;
+    surf.position.set(0, 9.9, 0);
+    surf.renderOrder = 18;
+    this.group.add(surf);
+
     // 水面辉光盘
-    const glow = makeGlowSprite(0xbdf3ff, 8, 0.5);
-    glow.position.set(0, 9.5, 0);
-    this.group.add(glow);
+    const glowS = makeGlowSprite(0xbdf3ff, 9, 0.55);
+    glowS.position.set(0, 9.5, 0);
+    this.group.add(glowS);
 
     // 三根下射光柱
     for (let i = 0; i < 3; i++) {
@@ -254,12 +497,56 @@ export class CaveSystem {
         length: 17 + i * 3,
         radius: 1.6 + i * 1.4,
         color: 0x8fd8f0,
-        intensity: 0.09 - i * 0.025,
+        intensity: 0.105 - i * 0.028,
       });
       cone.position.set((i - 1) * 1.1, 7.5, (i - 1) * 0.8);
       cone.rotateX(-Math.PI / 2 + (i - 1) * 0.1);
       this.group.add(cone);
     }
+  }
+
+  /**
+   * 钟厅穹顶天光竖井（奇观 1）：
+   * 洞顶裂隙泻下巨大光柱，照亮地面光池（焦散跟随 uShaftPos），鱼群绕柱回旋。
+   */
+  private buildBellShaft() {
+    const s = this.sampleAtT(0.4);
+    const up = s.down.clone().negate();
+    this.shaftTop.copy(s.pos).addScaledVector(up, s.radius * 0.92);
+    this.shaftFloor.copy(s.pos).addScaledVector(s.down, s.radius * 0.86);
+    (this.rockUniforms.uShaftPos.value as THREE.Vector3).copy(this.shaftFloor);
+
+    // 主光柱（体积锥）+ 内芯亮柱
+    const len = this.shaftTop.distanceTo(this.shaftFloor) + 3;
+    const beam = makeLightCone({ length: len, radius: 2.6, color: 0x9fdcf0, intensity: 0.075 });
+    beam.position.copy(this.shaftTop);
+    beam.rotateX(-Math.PI / 2);
+    this.group.add(beam);
+    const core = makeLightCone({ length: len * 0.92, radius: 1.1, color: 0xcdeef8, intensity: 0.12 });
+    core.position.copy(this.shaftTop);
+    core.rotateX(-Math.PI / 2);
+    this.group.add(core);
+
+    // 裂隙辉光 + 真实聚光（照亮光池）
+    const crack = makeGlowSprite(0xd9f4ff, 3.2, 0.5);
+    crack.position.copy(this.shaftTop);
+    this.group.add(crack);
+    const spot = new THREE.SpotLight(0xaee4f5, 260, len + 10, 0.32, 0.6, 1.6);
+    spot.position.copy(this.shaftTop).addScaledVector(up, 1.5);
+    spot.target.position.copy(this.shaftFloor);
+    this.group.add(spot, spot.target);
+    // 光池弱补光（往上打亮周围石笋）
+    const pool = new THREE.PointLight(0x7fc8dd, 4, 12, 1.8);
+    pool.position.copy(this.shaftFloor).addScaledVector(up, 1.2);
+    this.group.add(pool);
+  }
+
+  /** 给小型道具几何补默认 aWet/aGlow（注入 shader 需要）。 */
+  private static padRockAttrs(geo: THREE.BufferGeometry, wetV = 0.4) {
+    const n = (geo.attributes.position as THREE.BufferAttribute).count;
+    const wet = new Float32Array(n).fill(wetV);
+    geo.setAttribute('aWet', new THREE.BufferAttribute(wet, 1));
+    geo.setAttribute('aGlow', new THREE.BufferAttribute(new Float32Array(n), 1));
   }
 
   /** 主线绳：沿隧道下侧铺设，LINE_CUT_T 处被割断，留下漂浮断头。 */
@@ -313,7 +600,9 @@ export class CaveSystem {
       pos.setXYZ(i, v.x * (1 + n * 0.35), v.y, v.z * (1 + n * 0.35));
     }
     geo.computeVertexNormals();
+    CaveSystem.padRockAttrs(geo, 0.55);
     const mat = new THREE.MeshStandardMaterial({ color: 0x7d7466, roughness: 0.92 });
+    injectRockShader(mat, this.rockUniforms);
     const inst = new THREE.InstancedMesh(geo, mat, count);
     const m = new THREE.Matrix4();
     const qt = new THREE.Quaternion();
@@ -385,6 +674,7 @@ export class CaveSystem {
           '埃利亚斯·凡恩到过这里。线绳是他布的。',
           '委托人说他哥哥"做事有始有终"。有始有终的人不会不回来。',
         ],
+        note: ['线绳铭牌 E.V.', '钢印 32m。线绳确系埃利亚斯所布。起了钙壳——挂了不止三周。'],
       });
     }
     // 线索2：仍在闪烁的潜水电脑（钟厅）
@@ -428,6 +718,7 @@ export class CaveSystem {
           '计时没有停。它还以为主人在潜水。',
           '……或者它是对的。',
         ],
+        note: ['潜水电脑', '19 天没有停表。要么它坏了，要么"下潜"从未结束。'],
       });
     }
     // 线索3：割断的线绳
@@ -443,17 +734,22 @@ export class CaveSystem {
           '除非，割绳的时候，他已经不打算回去了。',
           '（线绳没了。沿着断口的方向继续。）',
         ],
+        note: ['割断的主线绳', '断口平整。自愿割断。他不打算回去。'],
       });
     }
   }
 
-  /** LED 呼吸闪烁等。 */
-  update(time: number) {
+  /** LED 呼吸闪烁 / 岩石 uniforms / 水面波动。 */
+  update(time: number, lampEffective = 1) {
     const blink = (Math.sin(time * 2.6) > 0.93) ? 1 : 0;
     this.ledMat.emissiveIntensity = blink * 3.2;
     this.computerLight.intensity = blink * 2.4;
     if (this.danglingLine) {
       this.danglingLine.rotation.y = Math.sin(time * 0.5) * 0.05;
     }
+    this.rockUniforms.uTime.value = time;
+    // 关灯 → 生物膜更亮（暗适应）
+    this.rockUniforms.uGlowBoost.value = 1 + (1 - lampEffective) * 1.6;
+    if (this.surfaceMat) this.surfaceMat.uniforms.uTime.value = time;
   }
 }

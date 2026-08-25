@@ -44,14 +44,18 @@ try {
   await shot('02_entrance');
 
   await dd('window.__dd.teleport(0.18)'); await wait(2600); await shot('03_throat');
-  await dd('window.__dd.teleport(0.40)'); await wait(2600); await shot('04_bell_chamber');
-  await dd('window.__dd.teleport(0.66)'); await wait(2600); await shot('05_dark_zone');
+  await dd('window.__dd.teleport(0.355)'); await wait(2600); await shot('04_bell_shaft_fish');
+  await dd('window.__dd.teleport(0.60)'); await wait(1800); await shot('05_gallery_lamp_on');
+  await dd('window.__dd.lamp(false)'); await dd('window.__dd.pulse()');
+  await wait(1400); await shot('05b_gallery_pulse');
+  await dd('window.__dd.lamp(true)');
+  await dd('window.__dd.teleport(0.70)'); await wait(2600); await shot('06_dark_zone');
 
-  await dd('window.__dd.face()'); await wait(400); await shot('06_scare_face');
+  await dd('window.__dd.face()'); await wait(400); await shot('07_scare_face');
   await dd('window.__dd.teleport(0.86)');
-  await dd('window.__dd.awe()'); await wait(3500); await shot('07_awe_creature');
+  await dd('window.__dd.awe()'); await wait(3500); await shot('08_awe_creature');
 
-  await dd('window.__dd.redroom()'); await wait(5000); await shot('08_redroom');
+  await dd('window.__dd.redroom()'); await wait(5000); await shot('09_redroom');
   await dd('window.__dd.teleport ? 0 : 0');
 } catch (e) {
   console.error('capture failed:', e);

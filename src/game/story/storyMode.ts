@@ -5,7 +5,8 @@
  */
 import * as THREE from 'three';
 import type { GameContext, GameMode } from '../modes';
-import { CaveSystem, type Interactable } from './cave';
+import { CaveSystem, GALLERY_T0, GALLERY_T1, type Interactable } from './cave';
+import { FishSchool, PolypField } from './fauna';
 import { Creature } from './creature';
 import { RedRoom } from './redroom';
 import {
@@ -32,6 +33,11 @@ export class StoryMode implements GameMode {
   private redroom: RedRoom | null = null;
   private silt!: Silt;
   private bubbles!: BubblePool;
+  private fishMain!: FishSchool;
+  private fishEntry!: FishSchool;
+  private polyps!: PolypField;
+  private rippleCooldown = 0;
+  private o2Bonus = 0;
 
   private phase: Phase = 'explore';
   private idle = true;
@@ -133,9 +139,35 @@ export class StoryMode implements GameMode {
     this.creature = new Creature();
     this.scene.add(this.creature.group);
 
+    // 奇观 1：钟厅天光下的鱼群漩涡 + 入口小鱼群
+    const orbit = this.cave.shaftFloor.clone();
+    orbit.y += 2.6;
+    this.fishMain = new FishSchool(orbit, q.fishCount, 2.8, 4.2);
+    this.scene.add(this.fishMain.mesh);
+    const entryC = this.cave.sampleAtT(0.055).pos.clone();
+    entryC.y += 0.8;
+    this.fishEntry = new FishSchool(entryC, Math.max(8, Math.floor(q.fishCount * 0.35)), 1.7, 2);
+    this.scene.add(this.fishEntry.mesh);
+
+    // 奇观 2：发光廊道水螅体点阵（成簇分布）
+    const polypPos: THREE.Vector3[] = [];
+    const clusters = 20;
+    for (let c = 0; c < clusters; c++) {
+      const ct = GALLERY_T0 + (GALLERY_T1 - GALLERY_T0) * ((c + Math.random() * 0.8) / clusters);
+      const ca = Math.random() * Math.PI * 2;
+      const per = Math.floor(q.polypCount / clusters);
+      for (let i = 0; i < per; i++) {
+        const t = ct + (Math.random() - 0.5) * 0.012;
+        const a = ca + (Math.random() - 0.5) * 1.6;
+        polypPos.push(this.cave.wallPoint(t, a, 0.93 + Math.random() * 0.05));
+      }
+    }
+    this.polyps = new PolypField(polypPos);
+    this.scene.add(this.polyps.points);
+
     // 假指引灯
     this.guideSprite = makeGlowSprite(0xd8e8b8, 2.6, 0);
-    const gp = this.cave.sampleAtT(0.705).pos;
+    const gp = this.cave.sampleAtT(0.765).pos;
     this.guideSprite.position.copy(gp);
     this.guideLightPt = new THREE.PointLight(0xc8e0a0, 0, 16, 1.6);
     this.guideLightPt.position.copy(gp);
@@ -198,6 +230,14 @@ export class StoryMode implements GameMode {
 
   debugScare() { this.beginScare(); }
 
+  debugPulse() {
+    this.polyps.triggerPulse(this.pos, this.time, true);
+  }
+
+  debugLamp(on: boolean) {
+    this.lampOn = on;
+  }
+
   /** 运行时可热切换的画质项（粒子数 / 体积光 / 后处理由 PostFX 处理）。 */
   applyQuality(q: import('../../core/quality').QualitySettings) {
     this.silt.points.geometry.setDrawRange(0, q.siltCount);
@@ -241,6 +281,7 @@ export class StoryMode implements GameMode {
     flicker: (dur) => { this.flickerLeft = dur; },
     guideLight: (on) => { this.guideAlive = on; },
     beginScare: () => this.beginScare(),
+    swell: (dur = 4) => this.ctx.audio.swell(dur),
   };
 
   // ---------- 主更新 ----------
@@ -249,10 +290,16 @@ export class StoryMode implements GameMode {
     this.time += this.idle ? dt * 0.35 : dt;
     const t = this.time;
 
-    this.cave.update(t);
+    this.cave.update(t, this.lampEffective);
     this.creature.update(dt, t);
     this.bubbles.update(dt, t);
     if (this.cone) tickCone(this.cone, t);
+    if (this.phase !== 'redroom' && this.phase !== 'done') {
+      const pp = this.idle ? this.ctx.camera.position : this.pos;
+      this.fishMain.update(dt, t, pp);
+      this.fishEntry.update(dt, t, pp);
+      this.polyps.update(t, this.lampEffective);
+    }
 
     if (this.idle) { this.updateIdleCam(dt, t); this.updateEnv(dt, t); return; }
 
@@ -264,6 +311,7 @@ export class StoryMode implements GameMode {
         this.updateInteraction();
         this.updateGuideLight(dt, t);
         this.updateO2Explore(dt);
+        this.updateGalleryRipple(dt);
         break;
       case 'scare':
         this.updateSwim(dt, 0);
@@ -442,8 +490,25 @@ export class StoryMode implements GameMode {
   }
 
   private updateO2Explore(dt: number) {
-    const base = MAX_O2 - this.progressT * 2100 - this.exertion;
+    const base = Math.min(MAX_O2, MAX_O2 - this.progressT * 2100 - this.exertion + this.o2Bonus);
     this.o2 = Math.max(SCARE_O2 + 30, damp(this.o2, base, 0.8, dt));
+  }
+
+  /** 发光廊道：贴近洞壁激起光的涟漪（暗适应下尤其醒目）。 */
+  private updateGalleryRipple(dt: number) {
+    this.rippleCooldown -= dt;
+    if (this.rippleCooldown > 0) return;
+    if (this.progressT < GALLERY_T0 || this.progressT > GALLERY_T1) return;
+    const s = this.cave.samples[this.sampleIdx];
+    const radial = this.tmpV.copy(this.pos).sub(s.pos);
+    radial.addScaledVector(s.tangent, -radial.dot(s.tangent));
+    const rd = radial.length();
+    if (rd > s.radius * 0.44 && this.vel.lengthSq() > 0.04) {
+      const origin = this.tmpV2.copy(s.pos).addScaledVector(radial.normalize(), s.radius * 0.95);
+      this.polyps.triggerPulse(origin, this.time, false);
+      this.ctx.audio.tick(0.09);
+      this.rippleCooldown = 2.6;
+    }
   }
 
   // ---------- 交互 ----------
@@ -472,6 +537,16 @@ export class StoryMode implements GameMode {
           hud.subtitle(line, Math.max(3.4, line.length * 0.14));
         }
         if (found.id === 'cutline') this.ctx.audio.setTension(0.55);
+        // 玩法效果
+        if (found.effect === 'o2') {
+          this.o2Bonus += 450;
+          this.tmpV.copy(found.pos);
+          this.bubbles.burst(this.tmpV, 30, 0.7);
+          this.ctx.audio.tick(0.2);
+        } else if (found.effect === 'polypWave') {
+          this.polyps.triggerPulse(found.pos, this.time, true);
+          this.ctx.audio.swell(3.5);
+        }
         hud.prompt(null);
         this.ctx.input.setInteractVisible(false);
       }
@@ -602,12 +677,12 @@ export class StoryMode implements GameMode {
       this.creatureLineIdx++;
       this.creatureLineT = this.seqT;
     }
-    // 生物缓慢漂近
+    // 生物缓慢漂近（3/4 侧身，躯干灯列可见）
     if (this.aweSpawned && this.creature.group.visible) {
       this.tmpV.copy(this.pos).sub(this.creature.group.position);
       const d = this.tmpV.length();
       if (d > 9.5) this.creature.group.position.addScaledVector(this.tmpV.normalize(), dt * 0.55);
-      this.creature.group.lookAt(this.pos);
+      this.creature.aimAt(this.pos);
     }
 
     if (this.o2 <= 60) {

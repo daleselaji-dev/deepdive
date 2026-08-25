@@ -57,6 +57,7 @@ export class Creature {
   private segments: THREE.Mesh[] = [];
   private glowLight: THREE.PointLight;
   private spots: THREE.Sprite[] = [];
+  private halo!: THREE.Sprite;
   private lungeT = -1;
   private baseZ = 0;
 
@@ -104,20 +105,35 @@ export class Creature {
       this.segments.push(seg);
     }
 
-    // 生物荧光斑点（awe 形态）
-    for (let i = 0; i < 26; i++) {
-      const s = makeGlowSprite(0x86e2ff, 0.34, 0);
+    // 生物荧光斑点（awe 形态）：沿躯干的双列光点 + 随机簇
+    for (let i = 0; i < 40; i++) {
       const k = Math.random();
-      s.position.set(
-        (Math.random() - 0.5) * 0.5,
-        (Math.random() - 0.5) * 0.5 - 0.05 * k * 9,
-        -0.3 - k * 4.8
-      );
+      const lane = i % 3;
+      const s = makeGlowSprite(lane === 2 ? 0xb08cff : 0x86e2ff, 0.26 + Math.random() * 0.22, 0);
+      if (lane < 2) {
+        // 双列侧灯：沿躯干规则分布（生物灯塔感）
+        const zi = (i / 3) / 13;
+        s.position.set(
+          (lane === 0 ? -1 : 1) * (0.28 - zi * 0.16),
+          -0.02 - zi * 0.5,
+          -0.35 - zi * 4.9
+        );
+      } else {
+        s.position.set(
+          (Math.random() - 0.5) * 0.5,
+          (Math.random() - 0.5) * 0.5 - 0.05 * k * 9,
+          -0.3 - k * 4.8
+        );
+      }
       this.group.add(s);
       this.spots.push(s);
     }
+    // 身后弥散光晕（Bloom 拾取）
+    this.halo = makeGlowSprite(0x5fc8ee, 4.2, 0);
+    this.halo.position.set(0, 0, -2.2);
+    this.group.add(this.halo);
 
-    this.glowLight = new THREE.PointLight(0x6fd4ff, 0, 24, 1.6);
+    this.glowLight = new THREE.PointLight(0x6fd4ff, 0, 26, 1.5);
     this.group.add(this.glowLight);
     this.group.visible = false;
   }
@@ -130,6 +146,7 @@ export class Creature {
     this.group.scale.setScalar(1);
     this.skin.uniforms.uGlow.value = 0;
     this.glowLight.intensity = 0;
+    (this.halo.material as THREE.SpriteMaterial).opacity = 0;
     for (const s of this.spots) (s.material as THREE.SpriteMaterial).opacity = 0;
 
     const dir = new THREE.Vector3();
@@ -143,16 +160,23 @@ export class Creature {
     this.lungeT = 0;
   }
 
-  /** 敬畏形态：巨大、发光、缓慢。 */
+  /** 敬畏形态：巨大、发光、缓慢。3/4 侧身让躯干荧光灯列可见。 */
   poseAwe(position: THREE.Vector3, lookAt: THREE.Vector3) {
     this.group.visible = true;
     this.group.scale.setScalar(6.5);
     this.group.position.copy(position);
-    this.group.lookAt(lookAt);
+    this.aimAt(lookAt);
     this.skin.uniforms.uGlow.value = 1;
-    this.glowLight.intensity = 32;
+    this.glowLight.intensity = 44;
     this.lungeT = -1;
+    (this.halo.material as THREE.SpriteMaterial).opacity = 0.35;
     for (const s of this.spots) (s.material as THREE.SpriteMaterial).opacity = 1;
+  }
+
+  /** 面向目标后侧转 0.55rad → 3/4 视角（躯干可见）。 */
+  aimAt(target: THREE.Vector3) {
+    this.group.lookAt(target);
+    this.group.rotateY(0.55);
   }
 
   hide() { this.group.visible = false; }
@@ -175,13 +199,14 @@ export class Creature {
       this.baseZ = 0.55 * ease;
       this.group.rotation.z = Math.sin(time * 22) * 0.02 * (1 - k);
     }
-    // 荧光斑点脉动
+    // 荧光斑点脉动（呼吸式，沿躯干相位递进 → 波动的灯塔）
     if (this.skin.uniforms.uGlow.value > 0) {
       for (let i = 0; i < this.spots.length; i++) {
         const m = this.spots[i].material as THREE.SpriteMaterial;
-        m.opacity = 0.6 + 0.4 * Math.sin(time * 1.3 + i * 1.7);
+        m.opacity = 0.55 + 0.45 * Math.sin(time * 1.3 + i * 0.55);
       }
-      this.glowLight.intensity = 30 + 9 * Math.sin(time * 0.8);
+      this.glowLight.intensity = 40 + 12 * Math.sin(time * 0.8);
+      (this.halo.material as THREE.SpriteMaterial).opacity = 0.3 + 0.14 * Math.sin(time * 0.62);
     }
   }
 }

@@ -21,6 +21,8 @@ export interface ScriptCtx {
   flicker(duration: number): void;
   guideLight(on: boolean): void;
   beginScare(): void;
+  /** 奇观弦乐涌起。 */
+  swell(dur?: number): void;
 }
 
 export interface Beat {
@@ -83,6 +85,19 @@ export const BEATS: Beat[] = [
       c.sub('三下。有节奏的。潜水员用刀敲瓶是在喊：**我在这里**。', 7);
     },
   },
+  {
+    t: 0.365,
+    run: (c) => {
+      c.swell(5);
+      c.sub('穹顶裂了一道缝。天光从五十米上方垂下来，像教堂里那种柱子。', 7);
+    },
+  },
+  {
+    t: 0.395,
+    run: (c) => {
+      c.sub('有活物——银色的一小群，绕着那道光转。像一枚慢慢旋转的钥匙。', 7);
+    },
+  },
   { t: 0.42, run: (c) => c.tension(0.18) },
   {
     t: 0.46,
@@ -109,17 +124,46 @@ export const BEATS: Beat[] = [
     },
   },
   {
-    t: 0.6,
+    t: 0.567,
     run: (c) => {
-      c.fog(0.1, 0x010507);
-      c.drone(0.4);
+      c.fog(0.095, 0x010507);
+      c.drone(0.42);
       c.ambient(0.03);
-      c.eerie(true);
-      c.sub('没有线的水像没有语法的句子。我已经不确定哪边是回去。', 8);
+      c.sub('没有线的水像没有语法的句子。我已经不确定哪边是回去。', 7);
+    },
+  },
+  // ---- 生物发光廊道（奇观 2：恐惧与美妙的第一次交替）----
+  {
+    t: 0.585,
+    run: (c) => {
+      c.fog(0.07, 0x020a12);
+      c.drone(0.3);
+      c.tension(0.3);
+      c.swell(5);
+      c.sub('光。墙上有光——**活的光**。成千上万点，像沉在水底的星空。', 8);
+      c.obj('穿过发光的廊道');
+    },
+  },
+  { t: 0.612, run: (c) => c.sub('（关掉手电（F），它们会亮得更清楚——黑暗里省下的每一格电都算数）', 7, 'mono') },
+  {
+    t: 0.648,
+    run: (c) => {
+      c.sub('它们在我经过时亮起来，一圈一圈。像水替它们呼吸。', 7);
     },
   },
   {
-    t: 0.64,
+    t: 0.69,
+    run: (c) => {
+      c.fog(0.105, 0x010507);
+      c.drone(0.45);
+      c.ambient(0.02);
+      c.eerie(true);
+      c.obj(null);
+      c.sub('光到这里就断了。再往前，是纯粹的黑。', 6);
+    },
+  },
+  {
+    t: 0.72,
     run: (c) => {
       c.guideLight(true);
       c.tension(0.6);
@@ -127,9 +171,9 @@ export const BEATS: Beat[] = [
       c.obj('靠近那盏灯');
     },
   },
-  // t≈0.70 指引灯熄灭由 storyMode 距离逻辑处理
+  // t≈0.77 指引灯熄灭由 storyMode 距离逻辑处理
   {
-    t: 0.75,
+    t: 0.795,
     run: (c) => {
       c.eerie(false);
       c.beginScare();
