@@ -10,20 +10,22 @@
 
 | 方式 | 说明 |
 |---|---|
-| **Windows EXE** | 下载仓库内 [`release/DeepDive-win32-x64.zip`](release/DeepDive-win32-x64.zip)，解压后双击 **`DeepDive.exe`**（便携包，无需安装） |
-| **静态 Demo** | 打开 [`demo/index.html`](demo/index.html)（或任意静态服务器指向 `demo/`） |
+| **Windows EXE（推荐）** | 下载 [`release/DeepDive-win32-x64.zip`](release/DeepDive-win32-x64.zip)，**完整解压**后双击 **`DeepDive.exe`** |
+| **网页单文件** | 双击 [`demo/DEEPDIVE.html`](demo/DEEPDIVE.html)（Chrome / Edge，无需服务器） |
 | **开发模式** | 见下方命令 |
 
-> Windows 若被 SmartScreen 拦截：更多信息 → 仍要运行（未签名原型包属正常）。
+> - 若 SmartScreen 拦截：更多信息 → 仍要运行（未签名原型包）。  
+> - 请不要只拷贝 `DeepDive.exe` 单独运行，必须保留同目录的 `ffmpeg.dll`、`resources/` 等文件。  
+> - 旧版 zip 曾误删 `ffmpeg.dll` 导致无法启动，请使用本分支最新包。
 
 ## 运行
 
 ```bash
 npm install
 npm run dev           # 本地开发（局域网可访问，手机可直接连入体验）
-npm run build         # 产物构建（含 TypeScript 严格检查）
+npm run build         # 产物构建（含 TypeScript 严格检查）→ 单文件 HTML
 npm run preview       # 预览构建产物
-npm run demo:sync     # 构建并同步到 demo/（供仓库内直接浏览）
+npm run demo:sync     # 构建并同步到 demo/DEEPDIVE.html
 npm run desktop:dev   # Electron 窗口 + Vite 热更新
 npm run package:win   # 重新打包 Windows EXE zip → release/
 ```

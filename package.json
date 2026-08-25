@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "demo:sync": "npm run build && node -e \"const fs=require('fs');fs.rmSync('demo',{recursive:true,force:true});fs.cpSync('dist','demo',{recursive:true});\"",
+    "demo:sync": "npm run build && node -e \"const fs=require('fs');const path=require('path');fs.rmSync('demo',{recursive:true,force:true});fs.mkdirSync('demo');fs.copyFileSync('dist/index.html','demo/index.html');fs.copyFileSync('dist/index.html','demo/DEEPDIVE.html');\"",
     "desktop": "cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .",
     "desktop:dev": "concurrently -k \"vite --port 5173 --strictPort\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
     "package:win": "node scripts/package-win.cjs"
@@ -23,8 +23,10 @@
     "cross-env": "^10.1.0",
     "electron": "^33.4.11",
     "electron-packager": "^17.1.2",
+    "puppeteer-core": "^23.11.1",
     "typescript": "^5.5.4",
     "vite": "^5.4.8",
+    "vite-plugin-singlefile": "^2.3.3",
     "wait-on": "^9.1.0"
   }
 }

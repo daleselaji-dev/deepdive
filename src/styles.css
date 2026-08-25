@@ -333,6 +333,17 @@ body {
 }
 #restart:hover { border-color: var(--amber); color: var(--amber); }
 
+#boot-error {
+  position: fixed; inset: 0; z-index: 9999;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; padding: 32px;
+  background: #030a0d; color: #e8dcc8;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  text-align: center;
+}
+#boot-error strong { color: #e8a33d; font-size: 18px; letter-spacing: 0.2em; }
+#boot-error p { max-width: 420px; line-height: 1.7; opacity: 0.85; font-size: 14px; }
+
 /* ============ 移动端 ============ */
 #touch { position: absolute; inset: 0; z-index: 22; pointer-events: none; }
 #stick {
