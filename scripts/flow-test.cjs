@@ -123,7 +123,8 @@ async function main() {
       window.__dd.zone('wreck', 0.5);
       window.__dd.o2(0.5);
     });
-    const end = await waitEnding(page, 180000);
+    // 缺氧演出 13.5 游戏秒；无头软渲染下游戏时间可能比墙钟慢 5-10 倍
+    const end = await waitEnding(page, 360000);
     if (!end.stat.includes('浅睡')) throw new Error('E3 文案缺失：' + end.stat);
     await page.screenshot({ path: path.join(outDir, 'ending-hypoxia.png') });
     console.log('  ✓ E3 浅睡（缺氧下沉）');

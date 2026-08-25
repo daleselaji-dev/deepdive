@@ -52,7 +52,9 @@
 | **E 剧情** | 新写字板×7、无线电弧线、silt-out、错绳支线、空气瓶、减压表道具 | 全事件触发顺序过一遍 |
 | **F 打磨发布** | 两轮视觉打磨（分区调色/曝光、材质细化、标题首屏）；无头截图回归；`npm run package:win` + demo 同步 | zip 完整解压可运行；demo 双击可玩 |
 
-每 Loop 一次 commit+push；调试钩子 `__dd` 扩展为 `jump/o2/n2/phase/creature/end`。
+每 Loop 一次 commit+push；调试钩子 `__dd` 扩展为 `jump/zone/look/lookWorld/lookAncient/mark/move/o2/n2/phase/sight/sightAt/silt/boat/state`。
+
+**M2 执行结果（2026-08）**：Loop A–F 全部完成。三结局端到端回归（`scripts/flow-test.cjs`）与 17 点位无头截图回归（`scripts/shots.cjs`）通过；`release/DeepDive-win32-x64.zip` 95.9MB（含 ffmpeg.dll 与网页备用文件）；`demo/DEEPDIVE.html` 已同步。无头验证的已知限制：软渲染下游戏时间比墙钟慢 5–10 倍，时序类断言一律用游戏内状态轮询而非固定等待。
 
 ## 4. 技术工作流
 
@@ -66,9 +68,13 @@
 原型期以**流程自测**为主：
 
 1. `npm run build` 必须零错误通过（TypeScript strict）。
-2. 完整跑通两条结局路径：红房间结局（保持氧气到达终点）、缺氧收束（中途耗尽氧气）。
-3. 手机触控：虚拟摇杆 + 拖拽视角可完成全流程。
-4. 刷新后从标题重新开始，状态无残留。
+2. 完整跑通三条结局路径（`node scripts/flow-test.cjs` 自动回归）：
+   - E1 破晓：下潜→目击→回程→（减压）→破水面→登船；
+   - E2 血里的针：高氮上浮且跳过减压停留后登船；
+   - E3 浅睡：氧气耗尽→操控衰减→下沉收束。
+3. 全区视觉回归：`node scripts/shots.cjs` 输出 17 张点位截图（9 区 + 浑水 + 目击三拍 + 水面 + 结局）。
+4. 手机触控：虚拟摇杆 + 拖拽视角可完成全流程。
+5. 刷新后从标题重新开始，状态无残留。
 
 M3 起补充：叙事触发器的单元测试、氧气曲线的数值回归测试。
 
