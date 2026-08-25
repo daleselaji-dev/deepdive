@@ -47,13 +47,13 @@ async function waitEnding(page, timeoutMs) {
 }
 
 async function swimToBoat(page) {
-  // 破水面 → 表层 → 游到船边
+  // 破水面 → 表层 → 游到船边（船在池心西侧，必须从池内一侧接近，否则会被井筒约束拉回）
   const boat = await page.evaluate(() => window.__dd.boat());
-  await page.evaluate((b) => window.__dd.move(b[0] - 4, -0.1, b[2] - 4), boat);
+  await page.evaluate((b) => window.__dd.move(b[0] + 2.6, -0.1, b[2] + 2.2), boat);
   await new Promise((r) => setTimeout(r, 2500));
   let st = await page.evaluate(() => window.__dd.state());
   if (st.phase !== 'surface') throw new Error('未进入 surface：' + JSON.stringify(st));
-  await page.evaluate((b) => window.__dd.move(b[0] - 1.2, -0.28, b[2] - 1.2), boat);
+  await page.evaluate((b) => window.__dd.move(b[0] + 1.2, 0.0, b[2] + 1.0), boat);
   await new Promise((r) => setTimeout(r, 2000));
   st = await page.evaluate(() => window.__dd.state());
   if (st.phase !== 'boarding' && st.state !== 'ended') throw new Error('未进入 boarding：' + JSON.stringify(st));

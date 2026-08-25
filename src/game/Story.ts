@@ -73,10 +73,35 @@ const TANKS: { empty: boolean; text: string }[] = [
   { empty: false, text: '荧光标旁的最后一瓶。\n有人希望你能回去。\n或者，希望「回去的人」是谁都行。' },
 ];
 
+/** 可观察物件（非拾取）：靠近触发一次环境描述，物件保留在原地 */
+const RELICS: { kind: CaveProp['kind']; text: string }[] = [
+  {
+    kind: 'ammonite',
+    text: '岩壁里嵌着一枚菊石，比你的头还大。\n一亿年前这里是海底。现在它还是。',
+  },
+  {
+    kind: 'handprints',
+    text: '赭红色的负手印，一整面墙。\n一千年前有人潜到这里，只为把手按在黑暗上。\n他们没有手电。',
+  },
+  {
+    kind: 'pot',
+    text: '一只玛雅陶罐，半埋在钙化层里。\n给井底之物的供品。\n它是空的——或者说，被收下了。',
+  },
+  {
+    kind: 'helictite',
+    text: '石膏针晶，朝所有方向乱长——包括向下。\n洞穴学家管这叫「违反重力的花」。\n一根一万年长一厘米。别碰。',
+  },
+  {
+    kind: 'crayfish',
+    text: '几只无色素的盲螯虾伏在岩面上。\n它们是这里的顶级掠食者。\n指甲盖那么大。',
+  },
+];
+
 export class Story {
   private nodes: FlowNode[] = [];
   private slateProps: { prop: CaveProp; text: string }[] = [];
   private tankProps: CaveProp[] = [];
+  private relicProps: { prop: CaveProp; text: string; seen: boolean }[] = [];
 
   constructor(cave: Cave) {
     /** 区内比例 → 主脉 t */
@@ -148,6 +173,26 @@ export class Story {
       cave.addProp('tank', zt('collapse', 0.62), -1.2),
       cave.addProp('tank', zt('chimney', 0.3), 1.8),
     );
+
+    // ---------- 可观察物件（探索奖励：每区一个秘密） ----------
+    const relicAt = (i: number, zone: Parameters<Cave['zoneRange']>[0] | null, frac: number, ang: number, pathId = 0): void => {
+      const t = zone === null ? frac : zt(zone, frac);
+      const prop = cave.addProp(RELICS[i].kind, t, ang, pathId);
+      this.relicProps.push({ prop, text: RELICS[i].text, seen: false });
+    };
+    relicAt(0, 'gallery', 0.3, 1.6); //    菊石（回廊壁）
+    relicAt(1, 'hall', 0.4, -2.7); //      手印岩画（光之厅侧壁）
+    relicAt(2, null, 0.55, 1.9, 1); //     陶罐（祭坛支线中段）
+    relicAt(3, 'collapse', 0.3, 0.8); //   石膏针晶（塌方区）
+    relicAt(4, 'abyss', 0.62, -1.9); //    盲螯虾（深渊大厅）
+  }
+
+  get relicsSeen(): number {
+    return this.relicProps.filter((r) => r.seen).length;
+  }
+
+  get relicTotal(): number {
+    return this.relicProps.length;
   }
 
   get slatesFound(): number {
@@ -185,6 +230,12 @@ export class Story {
         t.taken = true;
         t.mesh.visible = false;
         ctx.tank(t);
+      }
+    }
+    for (const r of this.relicProps) {
+      if (!r.seen && r.prop.mesh.position.distanceToSquared(playerPos) < 3.4 * 3.4) {
+        r.seen = true;
+        ctx.env(r.text, 7);
       }
     }
   }

@@ -13,6 +13,7 @@ import { Player } from './Player';
 import { Hud } from './Hud';
 import { Story, type StoryContext } from './Story';
 import { Scare } from './Scare';
+import { Buddy, type BuddyGesture } from './Buddy';
 
 type GameState = 'title' | 'play' | 'hypoxia' | 'ended';
 /** play 内部阶段：下潜 → 目击 → 回程 → 水面 → 登船 */
@@ -33,6 +34,19 @@ const ZONE_ENV: Record<ZoneName, { fog: number; den: number; exp: number }> = {
   collapse: { fog: 0x040f13, den: 0.062, exp: 0.86 },
   abyss: { fog: 0x02090e, den: 0.024, exp: 0.84 },
   chimney: { fog: 0x05161e, den: 0.04, exp: 0.94 },
+};
+
+/** 分区进入横幅文案（地图可读性：让玩家永远知道自己在哪一章） */
+const ZONE_BANNER: Record<ZoneName, { cn: string; en: string }> = {
+  shaft: { cn: '天光竖井', en: 'THE SHAFT' },
+  gallery: { cn: '回 廊', en: 'THE GALLERY' },
+  throat: { cn: '咽 喉', en: 'THE THROAT' },
+  hall: { cn: '光之厅', en: 'HALL OF LIGHT' },
+  halo: { cn: '卤水镜', en: 'THE HALOCLINE' },
+  wreck: { cn: '沉船峡', en: 'WRECK CANYON' },
+  collapse: { cn: '塌方迷宫', en: 'THE COLLAPSE' },
+  abyss: { cn: '深渊大厅', en: 'THE ABYSS' },
+  chimney: { cn: '荧光烟囱', en: 'GLOW CHIMNEY' },
 };
 
 export class Game {
@@ -91,6 +105,18 @@ export class Game {
   private siltUntil = -1; // 搅浑水结束时刻
   private envSnap = false; // 调试跳转后雾立即归位
 
+  // 潜伴「特奥」（支援潜水员：护送段 + 减压带汇合）
+  private buddy!: Buddy;
+  private buddyPathId = 0;
+  private buddyT = 0.01;
+  private buddyNodes: { t: number; fired: boolean; run: () => void }[] = [];
+  private gazeAwaitUntil = -1; // 等待玩家看向潜伴回应气检
+  private buddyDecoSpawned = false;
+  private buddyDecoGreeted = false;
+  private buddyDecoUpSent = false;
+  private seenZones = new Set<ZoneName>();
+  private seenBranches = new Set<number>();
+
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -125,6 +151,8 @@ export class Game {
 
     this.story = new Story(this.cave);
     this.scare = new Scare(this.scene);
+    this.buddy = new Buddy(this.scene);
+    this.buildBuddyBeats();
 
     this.buildParticles();
 
@@ -201,6 +229,13 @@ export class Game {
         zone: this.cave.zoneAt(this.player.mainT),
       }),
       fish: () => this.ecology.fishInfo(),
+      buddy: () => ({
+        mode: this.buddy.mode,
+        pos: this.buddy.worldPos.toArray().map((v) => +v.toFixed(1)),
+        gesturing: this.buddy.gesturing,
+      }),
+      buddyGesture: (k: BuddyGesture) => this.buddy.gesture(k),
+      relics: () => `${this.story.relicsSeen}/${this.story.relicTotal}`,
     };
   }
 
@@ -209,6 +244,135 @@ export class Game {
     const d = v.clone().sub(this.player.camera.position).normalize();
     this.player.pitch = Math.asin(THREE.MathUtils.clamp(d.y, -1, 1));
     this.player.yaw = Math.atan2(-d.x, -d.z);
+  }
+
+  // ---------- 潜伴「特奥」：双人洞潜协议演出 ----------
+  /**
+   * 护送段节拍（按主脉 t 触发）：
+   * 灯语教学 → 气检互动（玩家看向他回应）→ 导览线箭头讲解 → 洞穴区界停步（stop + up）。
+   * 特奥是支援潜水员：他的训练等级止步于回廊末端——玩家独潜进洞是剧情成立的前提。
+   */
+  private buildBuddyBeats(): void {
+    const zt = (zone: ZoneName, frac: number): number => {
+      const { t0, t1 } = this.cave.zoneRange(zone);
+      return t0 + (t1 - t0) * frac;
+    };
+    const N = (t: number, run: () => void): { t: number; fired: boolean; run: () => void } =>
+      ({ t, fired: false, run });
+    this.buddyNodes = [
+      N(zt('shaft', 0.22), () => {
+        this.buddy.gesture('ok', 3.2);
+        this.storyCtx.radio('特奥在你左后方，护送你到洞穴区界。\n规矩再对一遍：灯画圈=OK；灯快速横扫=注意；\n拇指向上不是"好"，是"上升"。', 9);
+      }),
+      N(zt('shaft', 0.62), () => {
+        this.buddy.gesture('airCheck', 5);
+        this.gazeAwaitUntil = this.time + 16;
+        this.hud.subtitle('特奥敲了敲压力表——气检。\n看向他，回一个 OK。', '', 6.5);
+      }),
+      N(zt('gallery', 0.3), () => {
+        const { tan } = this.cave.frameAt(0, this.player.mainT);
+        this.buddy.gesture('point', 3.4, tan);
+        this.hud.subtitle('特奥的灯扫过导览线上的箭头。\n箭头，永远指向最近的出口。记住它现在的朝向。', '', 7);
+      }),
+      N(zt('gallery', 0.9), () => {
+        this.buddy.gesture('stop', 2.4);
+        this.hud.subtitle('特奥打出"停"。\n然后指了指自己，又指了指上面。', '', 5.5);
+      }),
+      N(zt('throat', 0.04), () => {
+        this.buddy.gesture('up', 3);
+        this.storyCtx.radio('洞穴区界。特奥的等级到此为止——这是他的规矩，也该是你的。\n回程他会在减压带等你。……从这里开始，你是一个人了。', 9);
+        window.setTimeout(() => {
+          const exitPos = this.cave.pointAt(0.015).add(new THREE.Vector3(0, 1.5, 0));
+          this.buddy.leave(exitPos);
+        }, 3200);
+      }),
+    ];
+  }
+
+  /** 潜伴每帧逻辑：节拍触发、气检对视回应、隧道约束、减压带汇合 */
+  private updateBuddy(dt: number): void {
+    // 护送段节拍
+    if (this.phase === 'descent' && this.player.pathId === 0) {
+      for (const n of this.buddyNodes) {
+        if (!n.fired && this.player.mainT >= n.t) {
+          n.fired = true;
+          n.run();
+        }
+      }
+    }
+
+    // 气检对视回应：玩家把视线对准特奥
+    if (this.gazeAwaitUntil > 0) {
+      const toBuddy = this.buddy.worldPos.clone().sub(this.player.camera.position).normalize();
+      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.player.camera.quaternion);
+      if (fwd.dot(toBuddy) > 0.9) {
+        this.gazeAwaitUntil = -1;
+        this.buddy.gesture('ok', 2.8);
+        this.audio.radioBlip(0.5);
+        this.hud.subtitle(`你举起压力表：${Math.round(this.oxygen)}%。\n特奥的灯画了一个圈。OK。`, '', 5.5);
+      } else if (this.time > this.gazeAwaitUntil) {
+        this.gazeAwaitUntil = -1;
+        this.buddy.gesture('attention', 2.2);
+        this.hud.subtitle('特奥的灯快速横扫了两下——注意。\n气检不是客套：水下没有"以为"。', '', 6);
+      }
+    }
+
+    // 减压带汇合：回程进入浅水（荧光烟囱后段）时特奥重新出现
+    if (this.phase === 'return' && !this.buddyDecoSpawned && this.player.depth < 13 &&
+        this.cave.zoneAt(this.player.mainT) === 'chimney') {
+      this.buddyDecoSpawned = true;
+      const pc = this.cave.poolCenter;
+      this.buddy.spawn(new THREE.Vector3(pc.x + 2.2, -6.0, pc.z - 1.4), 'hold');
+    }
+    if (this.buddyDecoSpawned && !this.buddyDecoGreeted &&
+        this.buddy.worldPos.distanceTo(this.player.position) < 9) {
+      this.buddyDecoGreeted = true;
+      this.buddy.gesture('ok', 3.5);
+      this.hud.subtitle('浅处有一盏灯，在黑暗里画了一个圈。\n特奥。他一直在等。', '', 6.5);
+    }
+    // 减压期间他悬停在停留带陪你；减压完成打"上升"
+    if (this.buddyDecoSpawned && this.buddy.mode === 'hold') {
+      const pc = this.cave.poolCenter;
+      this.buddy.hold(new THREE.Vector3(pc.x + 1.6, Math.min(-4.6, this.player.position.y + 0.4), pc.z - 1.2));
+      if ((this.decoDone || this.decoNeed === 0) && !this.buddyDecoUpSent && this.buddyDecoGreeted) {
+        this.buddyDecoUpSent = true;
+        this.buddy.gesture('up', 3);
+      }
+    }
+
+    this.buddy.update(dt, this.time, this.player.position, this.player.yaw);
+
+    // 隧道软约束（跟随/悬停时不穿岩壁；撤离时放行——他走的是"你看不见的路"）
+    if (this.buddy.mode === 'follow' || this.buddy.mode === 'hold') {
+      const hit = this.cave.resolve(this.buddy.position, this.buddyPathId, this.buddyT);
+      this.buddyPathId = hit.pathId;
+      this.buddyT = hit.t;
+      const maxR = hit.radius - 0.5;
+      const radial = this.buddy.position.clone().sub(hit.center);
+      const len = radial.length();
+      if (len > maxR && maxR > 0) {
+        this.buddy.position.copy(hit.center).addScaledVector(radial.multiplyScalar(1 / len), maxR);
+        this.buddy.group.position.copy(this.buddy.position);
+      }
+    }
+  }
+
+  /** 分区横幅 + 支线横幅（每处只提示一次） */
+  private updateZoneBanner(): void {
+    if (this.player.pathId !== 0) {
+      if (!this.seenBranches.has(this.player.pathId)) {
+        this.seenBranches.add(this.player.pathId);
+        if (this.player.pathId === 1) this.hud.zoneBanner('祭坛支线', 'SIDE PASSAGE · ALTAR');
+        else this.hud.zoneBanner('岔路 · 白线', 'SIDE PASSAGE · UNKNOWN LINE');
+      }
+      return;
+    }
+    const zone = this.cave.zoneAt(this.player.mainT);
+    if (!this.seenZones.has(zone)) {
+      this.seenZones.add(zone);
+      const b = ZONE_BANNER[zone];
+      this.hud.zoneBanner(b.cn, `${b.en} · −${Math.max(1, Math.round(this.player.depth))}M`);
+    }
   }
 
   private buildParticles(): void {
@@ -268,6 +432,8 @@ export class Game {
     this.state = 'play';
     this.phase = 'descent';
     this.startedAt = this.time;
+    // 潜伴特奥：从入水点开始护送
+    this.buddy.spawn(this.player.position.clone().add(new THREE.Vector3(-1.3, 0.9, 1.2)));
     this.introQueue = [
       { at: this.time + 1.2, text: '尤卡坦半岛 · 天坑「寂静之井」\n萝拉·卡尔最后一次被目击的位置。', who: '案件档案 № 044', hold: 6 },
       { at: this.time + 8.4, text: '委托：找回她——或者找回答案。', who: '案件档案 № 044', hold: 5 },
@@ -352,6 +518,15 @@ export class Game {
     for (const l of this.cave.zoneLights) {
       l.visible = l.position.distanceToSquared(p) < 48 * 48;
     }
+    // 道具辉光半径只有 2~3m，26m 外直接关灯
+    for (const l of this.cave.propLights) {
+      let wp = l.userData.wp as THREE.Vector3 | undefined;
+      if (!wp) {
+        wp = l.getWorldPosition(new THREE.Vector3());
+        l.userData.wp = wp;
+      }
+      l.visible = wp.distanceToSquared(p) < 26 * 26;
+    }
   }
 
   /** 标题首屏（英雄机位）：井轴 8m 深处定点仰望 Snell 窗——船底剪影恰好悬在阳光爆点上，光柱簇+鱼群绕柱 */
@@ -431,6 +606,10 @@ export class Game {
 
     // ---- 阶段推进 ----
     this.updatePhase(dt);
+
+    // ---- 潜伴与分区横幅 ----
+    this.updateBuddy(dt);
+    this.updateZoneBanner();
 
     // ---- 导览线罗盘 ----
     this.updateGuide();
@@ -630,6 +809,10 @@ export class Game {
     this.player.surfaceMode = true;
     this.player.lightOn(5); // 晨光下手电收暗，不再把船体照成白斑
     this.audio.breach();
+    // 特奥先行回船（他的灯在水下朝船移动）
+    if (this.buddy.mode !== 'hidden') {
+      this.buddy.leave(this.water.boatPos.clone().add(new THREE.Vector3(0, -1.2, 0)));
+    }
     this.hud.subtitle('空气。真实的、带着丛林潮气的空气。\n支援船就在那里。', '', 6);
   }
 
@@ -672,13 +855,13 @@ export class Game {
         this.hud.showEnding(
           'bends',
           '你趴在船板上，关节里有细小的针。\n咳出的泡沫在晨光里是粉红色的。\n你把深渊带上来了一点。',
-          `最大深度 -${this.maxDepth.toFixed(1)}M · 用时 ${timeStr} 分钟 · 写字板 ${slates}/${this.story.slateTotal}\n结局：血里的针（跳过了减压停留）`,
+          `最大深度 -${this.maxDepth.toFixed(1)}M · 用时 ${timeStr} 分钟 · 写字板 ${slates}/${this.story.slateTotal} · 观察 ${this.story.relicsSeen}/${this.story.relicTotal}\n结局：血里的针（跳过了减压停留）`,
         );
       } else {
         this.hud.showEnding(
           'dawn',
           '太阳正从丛林线上升起来。\n你看见过它照不到的地方，\n以及在那里等了五亿年的东西。',
-          `最大深度 -${this.maxDepth.toFixed(1)}M · 用时 ${timeStr} 分钟 · 写字板 ${slates}/${this.story.slateTotal}\n结局：破晓`,
+          `最大深度 -${this.maxDepth.toFixed(1)}M · 用时 ${timeStr} 分钟 · 写字板 ${slates}/${this.story.slateTotal} · 观察 ${this.story.relicsSeen}/${this.story.relicTotal}\n结局：破晓`,
         );
       }
       document.exitPointerLock?.();

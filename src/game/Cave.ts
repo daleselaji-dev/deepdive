@@ -38,7 +38,9 @@ export interface CaveHit {
 }
 
 export interface CaveProp {
-  kind: 'slate' | 'tank' | 'tankEmpty' | 'reel' | 'gauge' | 'camera' | 'altar';
+  kind:
+    | 'slate' | 'tank' | 'tankEmpty' | 'reel' | 'gauge' | 'camera' | 'altar'
+    | 'ammonite' | 'handprints' | 'pot' | 'helictite' | 'crayfish';
   t: number;
   pathId: number;
   mesh: THREE.Object3D;
@@ -141,6 +143,8 @@ export class Cave {
   readonly props: CaveProp[] = [];
   /** 区域点光注册表：Game 每帧按距离启停 */
   readonly zoneLights: THREE.PointLight[] = [];
+  /** 道具辉光灯（半径小，用更近的剔除距离） */
+  readonly propLights: THREE.PointLight[] = [];
 
   /** 主脉便捷别名（兼容 Story/Scare 旧接口） */
   get curve(): THREE.CatmullRomCurve3 {
@@ -634,6 +638,10 @@ export class Cave {
     obj.position.copy(posv);
     obj.lookAt(center);
     this.group.add(obj);
+    // 道具辉光灯全部注册进近距剔除列表（前向渲染灯数是帧成本大头）
+    obj.traverse((o) => {
+      if ((o as THREE.PointLight).isPointLight) this.propLights.push(o as THREE.PointLight);
+    });
     const prop: CaveProp = { kind, t, pathId, mesh: obj };
     this.props.push(prop);
     return prop;
@@ -722,6 +730,115 @@ export class Cave {
       rec.position.set(0.06, 0.06, 0.03);
       g.add(body, lens, rec);
       const glow = new THREE.PointLight(0xc8341f, 1.0, 3, 1.8);
+      g.add(glow);
+    } else if (kind === 'ammonite') {
+      // 菊石化石：嵌在岩壁里的对数螺旋（一段一段的环面近似）
+      const mat = new THREE.MeshStandardMaterial({ color: 0x9a8f78, roughness: 0.75, metalness: 0.05 });
+      let r = 0.3;
+      for (let i = 0; i < 9; i++) {
+        const seg = new THREE.Mesh(new THREE.TorusGeometry(r, 0.028 + r * 0.14, 6, 12, 1.15), mat);
+        seg.rotation.z = i * 1.05;
+        g.add(seg);
+        r *= 0.78;
+      }
+      g.scale.setScalar(0.9);
+      const glow = new THREE.PointLight(0xd8c8a0, 1.1, 3.2, 1.8);
+      glow.position.z = 0.4;
+      g.add(glow);
+    } else if (kind === 'handprints') {
+      // 手印岩画：赭红色负手印一片（玛雅洞穴岩画的经典形制）
+      const panel = new THREE.Mesh(
+        new THREE.PlaneGeometry(1.3, 0.9),
+        new THREE.MeshStandardMaterial({ color: 0x6e4634, roughness: 0.95, transparent: true, opacity: 0.85 }),
+      );
+      g.add(panel);
+      const printMat = new THREE.MeshStandardMaterial({ color: 0xa8442c, emissive: 0x30100a, roughness: 0.9 });
+      for (let i = 0; i < 7; i++) {
+        const palm = new THREE.Mesh(new THREE.CircleGeometry(0.055, 8), printMat);
+        palm.position.set((Math.sin(i * 5.3) * 0.5), (Math.cos(i * 3.7) * 0.3), 0.01);
+        g.add(palm);
+        for (let f = 0; f < 5; f++) {
+          const finger = new THREE.Mesh(new THREE.CapsuleGeometry(0.011, 0.05, 3, 5), printMat);
+          const ang = -0.6 + f * 0.3;
+          finger.position.set(
+            palm.position.x + Math.sin(ang) * 0.085,
+            palm.position.y + Math.cos(ang) * 0.085,
+            0.01,
+          );
+          finger.rotation.z = -ang;
+          g.add(finger);
+        }
+      }
+      const glow = new THREE.PointLight(0xc87a54, 1.3, 3.6, 1.8);
+      glow.position.z = 0.5;
+      g.add(glow);
+    } else if (kind === 'pot') {
+      // 玛雅陶罐：车削轮廓 + 缠枝纹刻痕
+      const pts: THREE.Vector2[] = [];
+      for (let i = 0; i <= 12; i++) {
+        const v = i / 12;
+        const r = 0.05 + Math.sin(v * Math.PI) * 0.16 + (v > 0.85 ? -(v - 0.85) * 0.5 : 0);
+        pts.push(new THREE.Vector2(Math.max(0.04, r), v * 0.42));
+      }
+      const body = new THREE.Mesh(
+        new THREE.LatheGeometry(pts, 18),
+        new THREE.MeshStandardMaterial({ color: 0x7a5138, roughness: 0.88 }),
+      );
+      const rim = new THREE.Mesh(
+        new THREE.TorusGeometry(0.075, 0.014, 6, 14),
+        new THREE.MeshStandardMaterial({ color: 0x5e3c28, roughness: 0.9 }),
+      );
+      rim.rotation.x = Math.PI / 2;
+      rim.position.y = 0.42;
+      const stripe = new THREE.Mesh(
+        new THREE.TorusGeometry(0.205, 0.008, 5, 20),
+        new THREE.MeshStandardMaterial({ color: 0xc8a874, emissive: 0x2a2012, roughness: 0.7 }),
+      );
+      stripe.rotation.x = Math.PI / 2;
+      stripe.position.y = 0.2;
+      g.add(body, rim, stripe);
+      g.rotation.z = 0.35; // 半埋斜倚
+      const glow = new THREE.PointLight(0xd8b48a, 1.2, 3.2, 1.8);
+      glow.position.y = 0.5;
+      g.add(glow);
+    } else if (kind === 'helictite') {
+      // 石膏针晶簇：违反重力方向乱长的细针（洞穴学奇观）
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0xe8e4da, emissive: 0x2a2820, roughness: 0.35, metalness: 0.1,
+      });
+      for (let i = 0; i < 22; i++) {
+        const len = 0.12 + Math.abs(Math.sin(i * 7.3)) * 0.3;
+        const needle = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.012, len, 5), mat);
+        needle.position.set(Math.sin(i * 2.4) * 0.3, Math.cos(i * 1.7) * 0.22, Math.sin(i * 3.1) * 0.1);
+        needle.rotation.set(Math.sin(i * 5.1) * 1.4, 0, Math.cos(i * 4.3) * 1.4);
+        g.add(needle);
+      }
+      const glow = new THREE.PointLight(0xe8f0e4, 1.5, 3.4, 1.8);
+      glow.position.z = 0.4;
+      g.add(glow);
+    } else if (kind === 'crayfish') {
+      // 盲螯虾群：无色素的白色小虾伏在岩面（顶级掠食者，指甲盖大）
+      const body = new THREE.MeshStandardMaterial({ color: 0xe9e2d4, emissive: 0x3a352a, roughness: 0.5 });
+      for (let i = 0; i < 6; i++) {
+        const shrimp = new THREE.Group();
+        const thorax = new THREE.Mesh(new THREE.CapsuleGeometry(0.016, 0.05, 3, 6), body);
+        thorax.rotation.x = Math.PI / 2;
+        const tail = new THREE.Mesh(new THREE.ConeGeometry(0.013, 0.045, 5), body);
+        tail.rotation.x = -Math.PI / 2;
+        tail.position.z = -0.055;
+        for (const s of [-1, 1]) {
+          const claw = new THREE.Mesh(new THREE.CapsuleGeometry(0.005, 0.035, 3, 5), body);
+          claw.rotation.set(Math.PI / 2, 0, s * 0.5);
+          claw.position.set(s * 0.02, 0, 0.045);
+          shrimp.add(claw);
+        }
+        shrimp.add(thorax, tail);
+        shrimp.position.set(Math.sin(i * 4.1) * 0.35, Math.cos(i * 2.9) * 0.25, 0.02);
+        shrimp.rotation.z = i * 2.2;
+        g.add(shrimp);
+      }
+      const glow = new THREE.PointLight(0xdfe8de, 1.0, 2.8, 1.8);
+      glow.position.z = 0.3;
       g.add(glow);
     }
     return g;

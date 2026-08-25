@@ -267,6 +267,32 @@ body {
   font-size: 10px; letter-spacing: 0.5em; opacity: 0.4;
 }
 
+/* ============ 分区进入横幅 ============ */
+#zonebanner {
+  position: absolute; top: calc(9vh + env(safe-area-inset-top, 0px)); left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 1.1s ease;
+}
+#zonebanner.show { opacity: 1; }
+#zone-cn {
+  font-family: var(--serif);
+  font-size: clamp(19px, 3vmin, 28px);
+  letter-spacing: 0.55em;
+  text-indent: 0.55em;
+  color: rgba(226, 232, 228, 0.92);
+  text-shadow: 0 0 18px rgba(120, 200, 190, 0.35);
+}
+#zone-en {
+  margin-top: 6px;
+  font-size: 10px;
+  letter-spacing: 0.5em;
+  text-indent: 0.5em;
+  opacity: 0.5;
+}
+
 /* ============ 字幕 ============ */
 #subtitle {
   position: absolute;

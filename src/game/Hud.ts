@@ -22,8 +22,12 @@ export class Hud {
     vignette: document.getElementById('vignette')!,
     fade: document.getElementById('fade')!,
     title: document.getElementById('title')!,
+    zonebanner: document.getElementById('zonebanner')!,
+    zoneCn: document.getElementById('zone-cn')!,
+    zoneEn: document.getElementById('zone-en')!,
   };
   private subTimer: number | null = null;
+  private zoneTimer: number | null = null;
   private slateResolve: (() => void) | null = null;
 
   constructor() {
@@ -133,6 +137,21 @@ export class Hud {
   clearSubtitle(): void {
     if (this.subTimer !== null) window.clearTimeout(this.subTimer);
     this.el.subtitle.classList.add('hidden');
+  }
+
+  /** 分区进入横幅：中文区名 + 英文/深度副标，淡入淡出 */
+  zoneBanner(cn: string, en: string, holdSec = 4.2): void {
+    if (this.zoneTimer !== null) window.clearTimeout(this.zoneTimer);
+    this.el.zoneCn.textContent = cn;
+    this.el.zoneEn.textContent = en;
+    this.el.zonebanner.classList.remove('hidden');
+    // 强制回流以确保 transition 触发
+    void (this.el.zonebanner as HTMLElement).offsetWidth;
+    this.el.zonebanner.classList.add('show');
+    this.zoneTimer = window.setTimeout(() => {
+      this.el.zonebanner.classList.remove('show');
+      this.zoneTimer = null;
+    }, holdSec * 1000);
   }
 
   /** 写字板全屏呈现，点击/按键关闭后 resolve */
