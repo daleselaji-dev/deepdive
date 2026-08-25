@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { QualityProfile } from './quality';
 import type { Cave } from './Cave';
-import { causticFrames, particleSprite, shaftTexture, skyTexture, sunSprite } from './textures';
+import { causticFrames, particleSprite, shaftTexture, skyTexture, sunSprite, woodTexture } from './textures';
 
 /**
  * 水面与阳光系统（docs/ART_DIRECTION.md §3.5）：
@@ -42,6 +42,8 @@ void main() {
     + 0.18 * sin(vUv.x * 19.0 + uTime * 0.55) * sin(vUv.y * 7.0 - uTime * 0.34)
     + 0.10 * sin(vUv.x * 41.0 - uTime * 0.9);
   float a = edge * grad * tail * noise * uIntensity;
+  a *= 1.0 - smoothstep(-0.15, 0.05, vWorldPos.y); // 光锥不许捅出水面
+  a *= 1.0 - smoothstep(0.1, 0.6, cameraPosition.y); // 水上视角不叠画水下光锥
   gl_FragColor = vec4(uColor * a, a);
 }
 `;
@@ -64,36 +66,53 @@ varying vec3 vWorldPos;
 varying vec2 vUv;
 void main() {
   vec2 p = vWorldPos.xz;
+  // 双频波法线（低频大涌 + 高频细纹）
   vec3 n = normalize(vec3(
-    sin(p.x * 1.7 + uTime * 1.35) * 0.16 + sin(p.y * 2.3 - uTime * 0.95) * 0.11,
+    sin(p.x * 0.9 + uTime * 0.7) * 0.22 + sin(p.x * 2.3 - uTime * 1.1) * 0.10 + sin(p.y * 1.7 + uTime * 0.9) * 0.08,
     1.0,
-    sin(p.y * 1.9 + uTime * 1.1) * 0.16 + sin(p.x * 2.7 - uTime * 0.8) * 0.09
+    sin(p.y * 1.1 + uTime * 0.8) * 0.22 + sin(p.y * 2.7 - uTime * 1.3) * 0.10 + sin(p.x * 1.9 - uTime * 0.7) * 0.08
   ));
   if (!gl_FrontFacing) {
-    // ---- 水下仰视：Snell 窗 + 太阳亮斑 ----
+    // ---- 水下仰视：Snell 窗（窗内=明亮天空+太阳爆点，窗外=全反射暗镜面） ----
     vec3 vd = normalize(vWorldPos - cameraPosition);
     float up = dot(vd, vec3(0.0, 1.0, 0.0));
-    float snell = smoothstep(0.52, 0.95, up);
-    float sunAmt = pow(max(0.0, dot(normalize(vd + n * 0.4), uSunDir)), 26.0);
-    float halo = pow(max(0.0, dot(vd, uSunDir)), 5.0);
-    vec3 base = mix(vec3(0.006, 0.026, 0.030), vec3(0.085, 0.2, 0.22), snell * 0.9);
-    float sparkle = pow(max(0.0, sin(p.x * 21.0 + uTime * 2.1) * sin(p.y * 17.0 - uTime * 1.6)), 14.0)
-      * pow(max(0.0, sin((p.x + p.y) * 9.0 - uTime * 1.1)), 4.0) * snell;
-    vec3 col = base
-      + vec3(1.0, 0.93, 0.72) * sunAmt * 1.7
-      + vec3(0.30, 0.46, 0.46) * halo * 0.4 * snell
-      + vec3(0.55, 0.66, 0.6) * sparkle * 0.32;
-    gl_FragColor = vec4(col, 0.94);
+    // 波动让窗口边缘呼吸、破碎
+    float wob = (n.x + n.z) * 0.55;
+    float snell = smoothstep(0.30, 0.74, up + wob);
+    // 窗内：折射后的天空——朝太阳方向更亮更暖
+    vec3 vr = normalize(vd + n * 0.5);
+    float toSun = max(0.0, dot(vr, uSunDir));
+    float sunDisk = pow(toSun, 180.0) * 3.2 + pow(toSun, 40.0) * 1.6;
+    float sunHalo = pow(toSun, 5.0);
+    vec3 skyIn = mix(vec3(0.10, 0.34, 0.40), vec3(0.72, 0.98, 0.92), sunHalo * 0.85)
+      + vec3(0.9, 0.8, 0.5) * pow(toSun, 12.0) * 0.55;
+    // 窗外：全反射暗镜面（不是死黑），带微弱波光
+    vec3 mirror = vec3(0.030, 0.075, 0.080)
+      + vec3(0.05, 0.12, 0.12) * pow(max(0.0, n.x * 2.2 + n.z * 1.8), 2.0);
+    // 波峰亮线（sparkle）
+    float sparkle = pow(max(0.0, sin(p.x * 13.0 + uTime * 1.7) * sin(p.y * 11.0 - uTime * 1.3)), 10.0)
+      * pow(max(0.0, sin((p.x - p.y) * 7.0 + uTime * 0.9)), 4.0);
+    vec3 col = mix(mirror, skyIn, snell)
+      + vec3(1.0, 0.96, 0.80) * sunDisk * smoothstep(0.1, 0.5, snell)
+      + vec3(0.55, 0.72, 0.66) * sparkle * (0.10 + snell * 0.45);
+    gl_FragColor = vec4(col, 0.985);
   } else {
-    // ---- 水上俯视：天空反射（黎明） ----
+    // ---- 水上俯视：天空反射（暖带只留掠射角一线，主体是青玉镜面） ----
     vec3 vd = normalize(vWorldPos - cameraPosition);
     vec3 rd = reflect(vd, n);
-    float horiz = smoothstep(-0.05, 0.55, rd.y);
-    vec3 sky = mix(vec3(0.82, 0.56, 0.28), vec3(0.05, 0.13, 0.18), horiz);
+    float horiz = smoothstep(-0.06, 0.14, rd.y);
+    // 掠射角反射崖壁（暗绿），高角反射天空（青）；金色只沿太阳方位铺一条光路
+    vec3 base = mix(vec3(0.05, 0.12, 0.13), vec3(0.10, 0.22, 0.26), horiz);
+    float toSunH = pow(max(0.0, dot(normalize(vec3(rd.x, 0.3, rd.z)), uSunDir)), 3.5);
+    vec3 sky = base + vec3(0.55, 0.36, 0.15) * toSunH * (1.0 - horiz * 0.55);
     float sunspec = pow(max(0.0, dot(rd, uSunDir)), 70.0);
+    float glitter = pow(max(0.0, dot(rd, uSunDir)), 16.0)
+      * pow(max(0.0, sin(p.x * 9.0 + uTime * 1.4) * sin(p.y * 8.0 - uTime * 1.1)), 6.0);
     float ripple = 0.5 + 0.5 * sin(p.x * 4.0 + uTime * 1.6) * sin(p.y * 3.4 - uTime * 1.2);
-    vec3 col = sky * (0.5 + ripple * 0.12) + vec3(1.0, 0.85, 0.55) * sunspec * 1.8;
-    gl_FragColor = vec4(col, 0.92);
+    vec3 col = sky * (0.60 + ripple * 0.12)
+      + vec3(1.0, 0.85, 0.55) * sunspec * 2.2
+      + vec3(1.0, 0.90, 0.62) * glitter * 1.4;
+    gl_FragColor = vec4(col, 0.93);
   }
 }
 `;
@@ -102,7 +121,7 @@ export class WaterWorld {
   readonly group = new THREE.Group();
   readonly sunDir = SUN_DIR.clone();
   readonly boat = new THREE.Group();
-  readonly boatPos = new THREE.Vector3(2.6, 0.0, 3.0);
+  readonly boatPos = new THREE.Vector3(-4.2, 0.0, 0.6);
   /** 水下主"太阳"（照亮竖井与回廊口） */
   readonly sunLight: THREE.SpotLight;
 
@@ -130,7 +149,7 @@ export class WaterWorld {
       depthWrite: false,
       side: THREE.DoubleSide,
     });
-    const water = new THREE.Mesh(new THREE.CircleGeometry(9.5, 48), this.waterMat);
+    const water = new THREE.Mesh(new THREE.CircleGeometry(12.5, 56), this.waterMat);
     water.rotation.x = -Math.PI / 2;
     water.position.set(cave.poolCenter.x, 0, cave.poolCenter.z);
     water.renderOrder = 4;
@@ -144,23 +163,23 @@ export class WaterWorld {
     sky.position.y = 40;
     this.group.add(sky);
     const sun = new THREE.Sprite(
-      new THREE.SpriteMaterial({ map: sunSprite(), color: 0xfff2d0, transparent: true, fog: false, depthWrite: false }),
+      new THREE.SpriteMaterial({ map: sunSprite(), color: 0xffe9c0, transparent: true, fog: false, depthWrite: false }),
     );
     sun.position.copy(SUN_DIR).multiplyScalar(190);
-    sun.scale.setScalar(56);
+    sun.scale.setScalar(44);
     this.group.add(sun);
 
     // ---------- 峭壁环 + 丛林剪影 + 垂根 ----------
     const cliffMat = new THREE.MeshStandardMaterial({
       map: cave.rock.map,
       bumpMap: cave.rock.bumpMap,
-      bumpScale: 1.2,
-      color: 0x6d7a72,
-      roughness: 0.95,
+      bumpScale: 0.9,
+      color: 0x8d978c,
+      roughness: 0.92,
       side: THREE.BackSide,
     });
-    const cliff = new THREE.Mesh(new THREE.CylinderGeometry(8.2, 7.4, 11, 28, 3, true), cliffMat);
-    cliff.position.set(cave.poolCenter.x, 4.4, cave.poolCenter.z);
+    const cliff = new THREE.Mesh(new THREE.CylinderGeometry(8.6, 7.4, 9.2, 40, 3, true), cliffMat);
+    cliff.position.set(cave.poolCenter.x, 3.5, cave.poolCenter.z);
     this.group.add(cliff);
 
     const jungleMat = new THREE.MeshBasicMaterial({ color: 0x060d08, fog: false });
@@ -170,7 +189,7 @@ export class WaterWorld {
       const tree = new THREE.Mesh(new THREE.ConeGeometry(1.2 + Math.sin(i * 7.1) * 0.6, h, 5), jungleMat);
       tree.position.set(
         cave.poolCenter.x + Math.cos(ang) * (9.2 + Math.sin(i * 3.3) * 1.4),
-        9.6 + h * 0.5,
+        7.9 + h * 0.5,
         cave.poolCenter.z + Math.sin(ang) * (9.2 + Math.cos(i * 5.1) * 1.4),
       );
       this.group.add(tree);
@@ -183,7 +202,7 @@ export class WaterWorld {
       const root = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.06, len, 5), rootMat);
       root.position.set(
         cave.poolCenter.x + Math.cos(ang) * (6.6 + Math.sin(i * 3.1) * 0.8),
-        9 - len / 2,
+        7.8 - len / 2,
         cave.poolCenter.z + Math.sin(ang) * (6.6 + Math.cos(i * 4.7) * 0.8),
       );
       root.rotation.z = Math.sin(i * 3.3) * 0.1;
@@ -191,14 +210,25 @@ export class WaterWorld {
     }
 
     // ---------- 地表光照（距离受限点光，不污染洞内） ----------
-    const dawnKey = new THREE.PointLight(0xffd9a0, 240, 42, 1.6);
+    const dawnKey = new THREE.PointLight(0xffe4b8, 190, 42, 1.6);
     dawnKey.position.set(cave.poolCenter.x + 5, 9, cave.poolCenter.z + 5);
-    const dawnFill = new THREE.PointLight(0x8fb4c8, 90, 46, 1.7);
+    const dawnFill = new THREE.PointLight(0xa8c8d8, 110, 46, 1.7);
     dawnFill.position.set(cave.poolCenter.x - 7, 13, cave.poolCenter.z - 6);
-    this.group.add(dawnKey, dawnFill);
+    // 崖壁内环晨光（照亮 BackSide 峭壁，水面镜头不再是黑带）
+    const rim1 = new THREE.PointLight(0xffd9a8, 95, 32, 1.6);
+    rim1.position.set(cave.poolCenter.x - 5, 4.5, cave.poolCenter.z + 4);
+    const rim2 = new THREE.PointLight(0xc8d8d2, 62, 30, 1.6);
+    rim2.position.set(cave.poolCenter.x + 4, 5.5, cave.poolCenter.z - 5);
+    // 井口下方上照散射（水面反射回来的天光——洞壁悬垂不再死黑）
+    const bounce = new THREE.PointLight(0x2e5a5c, 40, 22, 1.5);
+    bounce.position.set(cave.poolCenter.x, -6, cave.poolCenter.z);
+    // 船后崖壁补光（水面镜头背景不再是黑幕）
+    const rim3 = new THREE.PointLight(0xd8b888, 60, 26, 1.6);
+    rim3.position.set(cave.poolCenter.x + 6, 5, cave.poolCenter.z + 6);
+    this.group.add(dawnKey, dawnFill, rim1, rim2, rim3, bounce);
 
     // ---------- 水下太阳（竖井照明） ----------
-    this.sunLight = new THREE.SpotLight(0xd6efe6, 950, 65, 0.62, 0.65, 1.35);
+    this.sunLight = new THREE.SpotLight(0xd6efe6, 460, 65, 0.72, 0.75, 1.35);
     this.sunLight.position.copy(SUN_DIR).multiplyScalar(26);
     this.sunLight.position.add(new THREE.Vector3(cave.poolCenter.x, 0, cave.poolCenter.z));
     this.sunLight.target.position.set(cave.poolCenter.x - 2, -14, cave.poolCenter.z + 4);
@@ -206,6 +236,7 @@ export class WaterWorld {
 
     // ---------- 支援船 ----------
     this.buildBoat();
+    this.boat.scale.setScalar(0.9); // 船底剪影在 Snell 窗里是点缀，不是遮挡
     this.boat.position.copy(this.boatPos);
     this.group.add(this.boat);
 
@@ -233,21 +264,24 @@ export class WaterWorld {
       return mesh;
     };
 
-    // 天光井主束 ×4（细窄光柱，从水面斜插，站在旁边看得见）
-    const beamTilt = new THREE.Vector3(SUN_DIR.x, 0, SUN_DIR.z).multiplyScalar(-0.4);
-    const b1 = mkBeam(1.5, 3.0, 17, 0x9fdbd2, 0.5);
-    b1.position.set(cave.poolCenter.x - 1, -8, cave.poolCenter.z + 0.5);
-    b1.rotation.set(beamTilt.z, 0, -beamTilt.x);
-    const b2 = mkBeam(0.6, 1.5, 16, 0xbfe8da, 0.42);
-    b2.position.set(cave.poolCenter.x - 3.2, -8.5, cave.poolCenter.z + 2.6);
-    b2.rotation.set(beamTilt.z * 1.3, 0.4, -beamTilt.x * 1.3);
-    const b3 = mkBeam(0.42, 1.1, 15, 0xd0f0e2, 0.4);
-    b3.position.set(cave.poolCenter.x + 2.6, -9, cave.poolCenter.z - 1.8);
-    b3.rotation.set(beamTilt.z * 0.8, 1.7, -beamTilt.x * 0.8);
-    const b4 = mkBeam(0.8, 1.9, 16, 0xaee2d4, 0.36);
-    b4.position.set(cave.poolCenter.x + 1.4, -8.5, cave.poolCenter.z + 3.2);
-    b4.rotation.set(beamTilt.z * 1.1, 2.6, -beamTilt.x * 1.1);
-    this.group.add(b1, b2, b3, b4);
+    // 天光井光柱簇：1 宽主幕 + 5 细束，全部沿折射后太阳方向倾斜（从下仰望时向太阳收束）
+    const beamTilt = new THREE.Vector3(SUN_DIR.x, 0, SUN_DIR.z).multiplyScalar(-0.32);
+    const beamDefs: [number, number, number, number, number, number, number, number][] = [
+      // [topR, botR, h, color, intensity, x, y, z]
+      [2.4, 4.6, 24, 0x9fdbd2, 0.34, -0.6, -11, 0.8],
+      [0.7, 1.7, 22, 0xc8f0e0, 0.5, -3.0, -11.5, 2.4],
+      [0.5, 1.2, 20, 0xd0f0e2, 0.48, 2.6, -11.5, -1.6],
+      [0.9, 2.1, 22, 0xaee2d4, 0.42, 1.4, -11, 3.0],
+      [0.4, 1.0, 18, 0xd8f4e6, 0.44, -1.8, -10, -2.2],
+      [0.55, 1.4, 21, 0xbfe8da, 0.4, 3.4, -11, 1.2],
+    ];
+    for (let bi = 0; bi < beamDefs.length; bi++) {
+      const [tr, br2, h, col, its, bx, by, bz] = beamDefs[bi];
+      const beam = mkBeam(tr, br2, h, col, its);
+      beam.position.set(cave.poolCenter.x + bx, by, cave.poolCenter.z + bz);
+      beam.rotation.set(beamTilt.z * (0.8 + bi * 0.12), bi * 1.1, -beamTilt.x * (0.8 + bi * 0.12));
+      this.group.add(beam);
+    }
 
     // 光之厅裂隙束
     const crack = cave.crackPoint;
@@ -290,7 +324,7 @@ export class WaterWorld {
       const plane = new THREE.Mesh(new THREE.PlaneGeometry(0.5 + Math.random() * 1.3, h), this.rayMat);
       plane.position.set(
         cave.poolCenter.x + (Math.random() - 0.5) * 8,
-        -3 - Math.random() * 5,
+        -h / 2 - 0.4 - Math.random() * 3, // 面片顶端压在水面以下
         cave.poolCenter.z + (Math.random() - 0.5) * 8,
       );
       plane.rotation.set((Math.random() - 0.5) * 0.22, Math.random() * Math.PI, (Math.random() - 0.5) * 0.16);
@@ -309,9 +343,9 @@ export class WaterWorld {
     const geo = cave.buildShellGeometry(shaftEnd, 0.06);
     const mat = new THREE.MeshBasicMaterial({
       map: this.caustics[0],
-      color: 0x9fd8c8,
+      color: 0x86b8ac,
       transparent: true,
-      opacity: 0.34,
+      opacity: 0.17,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       vertexColors: true,
@@ -324,22 +358,29 @@ export class WaterWorld {
 
   /** 支援船「露水号」：木质小艇 + 舷梯 + 潜水旗 */
   private buildBoat(): void {
-    const hullMat = new THREE.MeshStandardMaterial({ color: 0x7a4a2c, roughness: 0.72 });
+    const wood = woodTexture();
+    wood.wrapS = wood.wrapT = THREE.RepeatWrapping;
+    wood.repeat.set(2, 1);
+    const hullMat = new THREE.MeshStandardMaterial({ map: wood, color: 0xb98a5e, roughness: 0.78 });
     const darkMat = new THREE.MeshStandardMaterial({ color: 0x1c1512, roughness: 0.85 });
-    const white = new THREE.MeshStandardMaterial({ color: 0xd8d4c8, roughness: 0.6 });
+    const white = new THREE.MeshStandardMaterial({ map: wood, color: 0xc9c2b0, roughness: 0.7 });
 
-    // 船体：中段箱体 + 前后锥艏艉
-    const mid = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.75, 3.2), hullMat);
-    mid.position.y = -0.12;
+    // 船体：中段箱体 + 前后锥艏艉（浅吃水——小艇水下体量必须薄）
+    const mid = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.6, 3.2), hullMat);
+    mid.position.y = 0.04;
     const bow = new THREE.Mesh(new THREE.ConeGeometry(0.85, 1.6, 4), hullMat);
     bow.rotation.set(Math.PI / 2, 0, Math.PI / 4);
-    bow.scale.set(1.0, 1, 0.44);
-    bow.position.set(0, -0.12, -2.35);
-    const stern = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.7, 0.5), darkMat);
-    stern.position.set(0, -0.1, 1.8);
-    // 底漆（水下可见的暗色船底）
-    const keel = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.3, 3.6), darkMat);
-    keel.position.y = -0.48;
+    bow.scale.set(1.0, 1, 0.38);
+    bow.position.set(0, 0.02, -2.0);
+    const stern = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.56, 0.5), darkMat);
+    stern.position.set(0, 0.04, 1.8);
+    // 圆滑船底（水下仰望的剪影主体：拉长扁椭球 + 尾舵鳍）——不能是方块
+    const bilgeMat = new THREE.MeshStandardMaterial({ color: 0x232e2a, roughness: 0.5, metalness: 0.15 });
+    const keel = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), bilgeMat);
+    keel.scale.set(0.84, 0.2, 2.1);
+    keel.position.y = -0.18;
+    const skeg = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.2, 0.7), bilgeMat);
+    skeg.position.set(0, -0.4, 1.5);
     // 舷缘
     const gw1 = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 3.4), white);
     gw1.position.set(0.82, 0.32, 0);
@@ -382,7 +423,17 @@ export class WaterWorld {
     );
     stripe.position.set(0.83, 1.42, 1.605);
     stripe.rotation.z = -0.62;
-    this.boat.add(mid, bow, stern, keel, gw1, gw2, bench1, bench2, motor, ladder, pole, flag, stripe);
+    // 桅灯：清晨水面上的一粒暖光（回程时导航地标）
+    const lampPole = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.018, 0.9, 5), railMat);
+    lampPole.position.set(-0.5, 0.75, -1.7);
+    const bulb = new THREE.Mesh(
+      new THREE.SphereGeometry(0.05, 8, 6),
+      new THREE.MeshStandardMaterial({ color: 0x584018, emissive: 0xffc86a, emissiveIntensity: 3.2 }),
+    );
+    bulb.position.set(-0.5, 1.24, -1.7);
+    const lampLight = new THREE.PointLight(0xffc86a, 4.5, 9, 1.7);
+    lampLight.position.copy(bulb.position);
+    this.boat.add(mid, bow, stern, keel, skeg, gw1, gw2, bench1, bench2, motor, ladder, pole, flag, stripe, lampPole, bulb, lampLight);
   }
 
   update(dt: number, time: number): void {
@@ -397,8 +448,8 @@ export class WaterWorld {
       this.causticIdx = (this.causticIdx + 1) % this.caustics.length;
       (this.causticMesh.material as THREE.MeshBasicMaterial).map = this.caustics[this.causticIdx];
     }
-    // 太阳光微颤（水面折射感）
-    this.sunLight.intensity = 950 + Math.sin(time * 1.9) * 90 + Math.sin(time * 4.7) * 45;
+    // 太阳光微颤（水面折射感；幅度收敛避免闪烁不适）
+    this.sunLight.intensity = 460 + Math.sin(time * 1.1) * 20 + Math.sin(time * 2.3) * 9;
 
     // 船体轻摇
     this.boat.position.y = this.boatPos.y + Math.sin(time * 0.8) * 0.05;

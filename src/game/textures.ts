@@ -126,15 +126,16 @@ export function causticFrames(n: number, size: number): THREE.CanvasTexture[] {
     const f = (Math.PI * 2) / size;
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
-        const u = x * f * 3, v = y * f * 3;
+        const u = x * f * 2.6, v = y * f * 2.6;
         const a = Math.sin(u * 1.7 + t) + Math.sin(v * 1.3 - t * 1.0) + Math.sin((u + v) * 1.1 + t * 0.7);
         const b = Math.sin(u * 2.3 - t * 1.3) + Math.sin(v * 2.9 + t * 0.8);
-        let br = Math.pow(Math.abs(Math.sin(a * 1.2 + b * 0.7)), 6.0);
-        br = Math.min(1, br * 1.5);
+        // 胞状焦散：两套干涉条纹相乘 → 光斑网格（单套 |sin| 会读成指纹摩尔纹）
+        let br = Math.pow(Math.abs(Math.sin(a * 1.1)) * Math.abs(Math.sin(b * 1.3)), 2.2);
+        br = Math.min(1, br * 1.05 + 0.05);
         const i = (y * size + x) * 4;
-        img.data[i] = br * 190;
-        img.data[i + 1] = br * 235;
-        img.data[i + 2] = br * 225;
+        img.data[i] = br * 175;
+        img.data[i + 1] = br * 225;
+        img.data[i + 2] = br * 218;
         img.data[i + 3] = 255;
       }
     }
@@ -293,12 +294,12 @@ export function shaftTexture(): THREE.Texture {
 export function skyTexture(): THREE.Texture {
   const [c, ctx] = canvas(16, 512);
   const g = ctx.createLinearGradient(0, 0, 0, 512);
-  g.addColorStop(0, '#0a1a26');
-  g.addColorStop(0.42, '#16324a');
-  g.addColorStop(0.66, '#3c5a66');
-  g.addColorStop(0.82, '#b87a3a');
-  g.addColorStop(0.93, '#e8b25c');
-  g.addColorStop(1, '#f2cf8a');
+  g.addColorStop(0, '#1c3450');
+  g.addColorStop(0.42, '#2c4a66');
+  g.addColorStop(0.66, '#4c6a76');
+  g.addColorStop(0.82, '#c8884a');
+  g.addColorStop(0.93, '#f0bc66');
+  g.addColorStop(1, '#f8d894');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 16, 512);
   const tex = new THREE.CanvasTexture(c);

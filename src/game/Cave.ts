@@ -445,7 +445,7 @@ export class Cave {
         const y = center.y + (N.y * Math.cos(ang) + B.y * sin) * r;
         const z = center.z + (N.z * Math.cos(ang) + B.z * sin) * r;
         pos.push(x, y, z);
-        uv.push((j / radial) * 6, t * 220);
+        uv.push((j / radial) * 3, t * 110);
         const fade = y > -0.4 ? 0 : Math.pow(Math.max(0, Math.min(1, 1 - Math.abs(y) / 13)), 1.5);
         col.push(fade, fade, fade);
       }
@@ -513,7 +513,7 @@ export class Cave {
         .clone()
         .addScaledVector(N, Math.cos(ang) * r)
         .addScaledVector(B, Math.sin(ang) * r);
-      if (posv.y > -1) { // 不放到水面以上
+      if (posv.y > -3) { // 井口浅层不放凸石：从下仰望时会在 Snell 窗上剪出杂乱黑块
         i--;
         continue;
       }

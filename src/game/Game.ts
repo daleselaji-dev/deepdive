@@ -354,23 +354,21 @@ export class Game {
     }
   }
 
-  /** 标题首屏：竖井仰望——阳光、水面、船底剪影 */
+  /** 标题首屏（英雄机位）：井轴 8m 深处定点仰望 Snell 窗——船底剪影恰好悬在阳光爆点上，光柱簇+鱼群绕柱 */
   private titleIdle(dt: number): void {
-    const t = 0.012 + Math.sin(this.time * 0.015) * 0.003;
-    const p = this.cave.pointAt(t);
+    const pc = this.cave.poolCenter;
     this.player.camera.position.set(
-      p.x + Math.sin(this.time * 0.1) * 0.9,
-      p.y + Math.sin(this.time * 0.07) * 0.4,
-      p.z + Math.cos(this.time * 0.08) * 0.8,
+      pc.x - 0.4 + Math.sin(this.time * 0.06) * 0.3,
+      -10.2 + Math.sin(this.time * 0.09) * 0.35,
+      pc.z + 3.6 + Math.cos(this.time * 0.055) * 0.3,
     );
-    // 仰望水面（阳光与船底）
     const look = new THREE.Vector3(
-      this.cave.poolCenter.x + Math.sin(this.time * 0.05) * 2,
-      2.5,
-      this.cave.poolCenter.z + Math.cos(this.time * 0.04) * 2,
+      pc.x + this.water.sunDir.x * 2.6 + Math.sin(this.time * 0.05) * 0.5,
+      3.0,
+      pc.z + this.water.sunDir.z * 2.6 + Math.cos(this.time * 0.045) * 0.5,
     );
     this.player.camera.lookAt(look);
-    this.player.camera.rotation.z = Math.sin(this.time * 0.06) * 0.02;
+    this.player.camera.rotation.z += Math.sin(this.time * 0.045) * 0.01;
     this.updateParticles(dt, this.player.camera.position);
     this.audio.update(dt, { oxygen01: 1, depth01: 0.1, sprinting: false });
   }
@@ -630,6 +628,7 @@ export class Game {
     if (this.phase === 'surface' || this.phase === 'boarding') return;
     this.phase = 'surface';
     this.player.surfaceMode = true;
+    this.player.lightOn(5); // 晨光下手电收暗，不再把船体照成白斑
     this.audio.breach();
     this.hud.subtitle('空气。真实的、带着丛林潮气的空气。\n支援船就在那里。', '', 6);
   }

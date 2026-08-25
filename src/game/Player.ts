@@ -88,8 +88,8 @@ export class Player {
     this.position.addScaledVector(this.velocity, dt);
 
     if (this.surfaceMode) {
-      // 贴水面：轻浪起伏
-      this.position.y = -0.28 + Math.sin(time * 1.3) * 0.06 + Math.sin(time * 2.7) * 0.03;
+      // 浮在水面：头在水上（眼位高于水面才能看见晨光世界，而不是水面背侧的暗镜面）
+      this.position.y = 0.34 + Math.sin(time * 1.3) * 0.05 + Math.sin(time * 2.7) * 0.025;
       this.velocity.y = 0;
     }
 
