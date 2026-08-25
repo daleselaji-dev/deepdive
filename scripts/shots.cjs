@@ -26,6 +26,10 @@ const SPOTS = [
   ['z7-collapse', 'collapse', 0.5, -2.3, 0, 900],
   ['z8-abyss', 'abyss', 0.45, -2.5, -0.2, 1300],
   ['z8-pit', 'abyss', 0.55, -2.5, -1.0, 900],
+  // 目击演出：frac 复用为演出进度 k（sightAt 快进 + lookAncient 对准）
+  ['sight-rise', 'SIGHT', 0.18, 0, 0, 1600],
+  ['sight-gaze', 'SIGHT', 0.47, 0, 0, 1600],
+  ['sight-leave', 'SIGHT', 0.8, 0, 0, 1600],
   ['z9-chimney', 'chimney', 0.4, 2.6, 0.75, 900],
 ];
 
@@ -60,6 +64,16 @@ async function main() {
   for (const [name, zone, frac, yaw, pitch, wait] of SPOTS) {
     if (zone === null) {
       await new Promise((r) => setTimeout(r, wait));
+    } else if (zone === 'SIGHT') {
+      // 快进演出到指定进度并对准生物（无头下游戏时间慢于墙钟，不能等真实时间）
+      await page.evaluate((first, k) => {
+        const dd = window.__dd;
+        if (first) dd.zone('abyss', 0.5);
+        dd.sightAt(k);
+      }, name === 'sight-rise', frac);
+      await new Promise((r) => setTimeout(r, wait));
+      await page.evaluate(() => window.__dd.lookAncient());
+      await new Promise((r) => setTimeout(r, 350));
     } else {
       await page.evaluate(
         (z2, f2, y2, p2) => {

@@ -6,6 +6,8 @@ import { InputManager } from './Input';
 import { Cave, type CaveProp, type ZoneName } from './Cave';
 import { Landmarks } from './Landmarks';
 import { WaterWorld } from './WaterWorld';
+import { Ecology } from './Ecology';
+import { Ancient } from './Ancient';
 import { Player } from './Player';
 import { Hud } from './Hud';
 import { Story, type StoryContext } from './Story';
@@ -39,6 +41,8 @@ export class Game {
   private cave: Cave;
   private landmarks: Landmarks;
   private water: WaterWorld;
+  private ecology: Ecology;
+  private ancient: Ancient;
   private player: Player;
   private input: InputManager;
   private hud = new Hud();
@@ -75,6 +79,8 @@ export class Game {
   private introQueue: { at: number; text: string; who: string; hold: number }[] = [];
   private startedAt = 0;
   private abyssMidT: number;
+  private lastSpeed = 0;
+  private sightBeat = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -98,6 +104,8 @@ export class Game {
     this.landmarks = new Landmarks(this.q, this.cave);
     this.scene.add(this.landmarks.group);
     this.water = new WaterWorld(this.q, this.cave, this.scene);
+    this.ecology = new Ecology(this.q, this.cave, this.scene);
+    this.ancient = new Ancient(this.cave, this.scene);
 
     const ab = this.cave.zoneRange('abyss');
     this.abyssMidT = (ab.t0 + ab.t1) / 2;
@@ -149,6 +157,16 @@ export class Game {
         this.phase = p;
         if (p === 'return') this.landmarks.igniteChimney();
         if (p === 'surface') this.enterSurface();
+      },
+      sight: () => this.beginSighting(),
+      sightAt: (k: number) => {
+        if (this.phase === 'descent') this.beginSighting();
+        this.ancient.skipTo(k);
+      },
+      lookAncient: () => {
+        const d = this.ancient.group.position.clone().sub(this.player.camera.position).normalize();
+        this.player.pitch = Math.asin(THREE.MathUtils.clamp(d.y, -1, 1));
+        this.player.yaw = Math.atan2(-d.x, -d.z);
       },
       state: () => ({
         state: this.state,
@@ -274,6 +292,14 @@ export class Game {
 
     this.water.update(dt, this.time);
     this.landmarks.update(this.time);
+    this.ecology.update(
+      dt,
+      this.time,
+      this.state === 'title' ? this.player.camera.position : this.player.position,
+      this.lastSpeed,
+    );
+    const sightProg = this.ancient.update(dt, this.time, this.player.position);
+    if (this.state === 'play' && this.phase === 'sighting') this.sightingBeats(sightProg);
     this.cullZoneLights();
     this.renderer.render(this.scene, this.player.camera);
   }
@@ -321,6 +347,7 @@ export class Game {
       this.input.moveZ = 0;
     }
     const { speed } = this.player.update(dt, this.input, this.cave, this.time);
+    this.lastSpeed = speed;
 
     // ---- 氧气 ----
     if (!reading && this.phase !== 'surface' && this.phase !== 'boarding') {
@@ -394,14 +421,14 @@ export class Game {
             this.storyCtx.radio('别浮上来。风暴锋面正在过境，水面全是涌浪。\n往下走。她在下面。', 6.5);
           }
         }
-        // 抵达深渊大厅中心 → 目击（占位：Loop C 换成奇虾脚本）
+        // 抵达深渊大厅中心 → 奇虾目击演出
         if (this.cave.zoneAt(p.mainT) === 'abyss' && Math.abs(p.mainT - this.abyssMidT) < 0.02) {
           this.beginSighting();
         }
         break;
       }
       case 'sighting':
-        break; // Loop C：奇虾脚本接管
+        break; // 节拍由 sightingBeats() 驱动
       case 'return': {
         // 减压逻辑（Loop D 完善 UI）：-6~-4m 停留
         const depth = p.depth;
@@ -432,15 +459,48 @@ export class Game {
     }
   }
 
-  /** 目击占位（Loop C 将替换为完整奇虾演出） */
+  /** 目击开场：水体异动 + 奇虾从深井升起（docs/GAME_DESIGN.md §3.1） */
   private beginSighting(): void {
     if (this.phase !== 'descent') return;
+    this.phase = 'sighting';
+    this.sightBeat = 0;
+    this.ancient.play();
+    this.audio.duckBed(0.12, 4);
+    this.audio.ancientCall(1);
+    this.tension = 0.7;
+    this.hud.subtitle('水在动。\n整个大厅的水都在往深井那边退。', '', 6);
+  }
+
+  /** 目击演出节拍（prog 由 Ancient.update 返回） */
+  private sightingBeats(prog: number): void {
+    if (prog < 0) return;
+    if (this.sightBeat === 0 && prog > 0.14) {
+      this.sightBeat = 1;
+      this.tension = Math.max(this.tension, 0.82);
+      this.hud.subtitle('有东西从井里升上来。\n它比支援船还要长。', '', 6.5);
+    } else if (this.sightBeat === 1 && prog > 0.42) {
+      this.sightBeat = 2;
+      this.tension = 0.95;
+      this.audio.ancientCall(0.7);
+      this.hud.subtitle('柄状的眼睛转了过来。\n它看见你了。它看了很久。', '', 6);
+    } else if (this.sightBeat === 2 && prog > 0.68) {
+      this.sightBeat = 3;
+      this.hud.subtitle('然后它失去了兴趣。\n在它的五亿年里，你只是一粒会发光的浮游生物。', '', 7);
+    } else if (this.sightBeat === 3 && prog >= 1) {
+      this.sightBeat = 4;
+      this.finishSighting();
+    }
+  }
+
+  /** 目击结束 → 回程：点亮荧光烟囱标，计算减压需求 */
+  private finishSighting(): void {
     this.phase = 'return';
     this.landmarks.igniteChimney();
+    this.audio.duckBed(1, 8);
     // 氮饱和超过阈值才需要减压停留（轻度机制）
     this.decoNeed = this.nitrogen > 25 ? Math.min(45, Math.max(20, this.nitrogen * 0.55)) : 0;
     this.hud.subtitle('大厅另一侧的岩壁上，一排蓝绿色的荧光标亮了。\n那是回家的路。', '', 7);
-    this.storyCtx.radio('……信号恢复了。听着，别管下面是什么。\n沿荧光标上升。慢一点。你还有减压要做。', 7);
+    this.storyCtx.radio('……信号恢复了。我不知道你刚才看见了什么，我也不想知道。\n沿荧光标上升。慢一点——你还有减压要做。', 8);
   }
 
   private enterSurface(): void {

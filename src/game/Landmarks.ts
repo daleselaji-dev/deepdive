@@ -403,12 +403,30 @@ export class Landmarks {
     abyssDisc.rotation.x = -Math.PI / 2;
     abyssDisc.position.set(pc.x, pc.y - 32.5, pc.z);
     this.group.add(abyssDisc);
-    // 井口岩齿
-    for (let i = 0; i < 14; i++) {
-      const ang = (i / 14) * Math.PI * 2;
-      const s = 0.5 + Math.abs(Math.sin(i * 5.3)) * 1.1;
-      const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.5 * s, 1.8 * s, 5), rockMat);
-      tooth.position.set(pc.x + Math.cos(ang) * (5.1 + Math.sin(i * 3.7) * 0.5), pc.y + 0.4, pc.z + Math.sin(ang) * (5.1 + Math.cos(i * 2.9) * 0.5));
+    // 井口崩落岩块环：厚重的碎石唇缘，遮住地面开洞的裁切锯齿
+    const rimGeo = new THREE.DodecahedronGeometry(1, 0);
+    const rim = new THREE.InstancedMesh(rimGeo, rockMat, 26);
+    const m4 = new THREE.Matrix4();
+    const qr = new THREE.Quaternion();
+    for (let i = 0; i < 26; i++) {
+      const ang = (i / 26) * Math.PI * 2 + Math.sin(i * 7.3) * 0.1;
+      const rr = 5.3 + Math.abs(Math.sin(i * 3.7)) * 1.3;
+      const s = 0.9 + Math.abs(Math.sin(i * 5.1)) * 1.5;
+      qr.setFromEuler(new THREE.Euler(Math.sin(i * 2.1) * 2, i * 1.7, Math.cos(i * 4.3) * 2));
+      m4.compose(
+        new THREE.Vector3(pc.x + Math.cos(ang) * rr, pc.y - 0.3 + Math.abs(Math.sin(i * 9.1)) * 0.5, pc.z + Math.sin(ang) * rr),
+        qr,
+        new THREE.Vector3(s, s * (0.55 + Math.abs(Math.cos(i * 3.3)) * 0.5), s),
+      );
+      rim.setMatrixAt(i, m4);
+    }
+    this.group.add(rim);
+    // 少量岩齿尖刺穿插其间
+    for (let i = 0; i < 8; i++) {
+      const ang = (i / 8) * Math.PI * 2 + 0.3;
+      const s = 0.6 + Math.abs(Math.sin(i * 5.3)) * 1.0;
+      const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.5 * s, 2.2 * s, 5), rockMat);
+      tooth.position.set(pc.x + Math.cos(ang) * 5.6, pc.y + 0.5, pc.z + Math.sin(ang) * 5.6);
       tooth.rotation.set((Math.random() - 0.5) * 0.5, 0, (Math.random() - 0.5) * 0.5);
       this.group.add(tooth);
     }

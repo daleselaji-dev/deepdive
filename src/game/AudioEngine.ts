@@ -1,6 +1,6 @@
 /**
  * 全程序化音频（零音频文件）：环境低鸣、水噪床、呼吸气泡、心跳、
- * 无线电静噪、惊吓 sting、红厅嗡鸣。节奏规则见 docs/GAME_DESIGN.md §4。
+ * 无线电静噪、惊吓 sting、远古之声、破水面。节奏规则见 docs/GAME_DESIGN.md §4。
  */
 export class AudioEngine {
   private ctx: AudioContext | null = null;
@@ -288,6 +288,60 @@ export class AudioEngine {
     sg.connect(this.muffleFilter);
     sub.start(t);
     sub.stop(t + 1.4);
+  }
+
+  /**
+   * 远古之声：亚低频鲸歌式呼唤（两声部缓慢滑音）+ 水体位移隆隆。
+   * 在奇虾目击演出的关键节拍触发（docs/GAME_DESIGN.md §3.1）。
+   */
+  ancientCall(intensity = 1): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = this.now();
+    // 两声部滑音：像从很远的地方传来的、不属于任何已知生物的呼唤
+    const voices: [number, number, number][] = [
+      [42, 30, 5.5],
+      [63, 47, 4.6],
+    ];
+    for (const [f0, f1, dur] of voices) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(f0, t);
+      osc.frequency.exponentialRampToValueAtTime(f1, t + dur * 0.7);
+      osc.frequency.exponentialRampToValueAtTime(f0 * 0.82, t + dur);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.16 * intensity, t + dur * 0.3);
+      g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      // 轻微颤音让声音"活"起来
+      const vib = ctx.createOscillator();
+      vib.frequency.value = 3.2;
+      const vg = ctx.createGain();
+      vg.gain.value = 1.6;
+      vib.connect(vg);
+      vg.connect(osc.frequency);
+      osc.connect(g);
+      g.connect(this.muffleFilter);
+      osc.start(t);
+      osc.stop(t + dur + 0.1);
+      vib.start(t);
+      vib.stop(t + dur + 0.1);
+    }
+    // 水体位移：低通噪声缓慢涌起再退去
+    const rum = ctx.createBufferSource();
+    rum.buffer = this.noiseBuffer(6);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 140;
+    const rg = ctx.createGain();
+    rg.gain.setValueAtTime(0, t);
+    rg.gain.linearRampToValueAtTime(0.18 * intensity, t + 2.2);
+    rg.gain.exponentialRampToValueAtTime(0.001, t + 6);
+    rum.connect(lp);
+    lp.connect(rg);
+    rg.connect(this.muffleFilter);
+    rum.start(t);
+    rum.stop(t + 6.1);
   }
 
   /** 破水面：宽频水花 + 空气骤然打开 */
