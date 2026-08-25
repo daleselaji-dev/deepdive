@@ -3,18 +3,28 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "DEEPDIVE 深潜 —— 洞穴潜水 · 侦探悬疑 · 心理恐怖（Web 原型）",
+  "main": "electron/main.cjs",
+  "description": "DEEPDIVE 深潜 —— 洞穴潜水 · 侦探悬疑 · 心理恐怖（Web / 桌面原型）",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "demo:sync": "npm run build && node -e \"const fs=require('fs');fs.rmSync('demo',{recursive:true,force:true});fs.cpSync('dist','demo',{recursive:true});\"",
+    "desktop": "cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .",
+    "desktop:dev": "concurrently -k \"vite --port 5173 --strictPort\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "package:win": "node scripts/package-win.cjs"
   },
   "dependencies": {
     "three": "^0.168.0"
   },
   "devDependencies": {
     "@types/three": "^0.168.0",
+    "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0",
+    "electron": "^33.4.11",
+    "electron-packager": "^17.1.2",
     "typescript": "^5.5.4",
-    "vite": "^5.4.8"
+    "vite": "^5.4.8",
+    "wait-on": "^9.1.0"
   }
 }

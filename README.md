@@ -6,13 +6,26 @@
 
 一名前警队搜救潜水员受托潜入尤卡坦半岛的虚构天坑「寂静之井」，调查传奇洞潜员失踪案。沿导览线下潜 45 米：写字板上的字迹越来越潦草，无线电里的声音越来越不对劲，而导览线的箭头——全部指向洞的深处。
 
+## 快速预览
+
+| 方式 | 说明 |
+|---|---|
+| **Windows EXE** | 下载仓库内 [`release/DeepDive-win32-x64.zip`](release/DeepDive-win32-x64.zip)，解压后双击 **`DeepDive.exe`**（便携包，无需安装） |
+| **静态 Demo** | 打开 [`demo/index.html`](demo/index.html)（或任意静态服务器指向 `demo/`） |
+| **开发模式** | 见下方命令 |
+
+> Windows 若被 SmartScreen 拦截：更多信息 → 仍要运行（未签名原型包属正常）。
+
 ## 运行
 
 ```bash
 npm install
-npm run dev      # 本地开发（局域网可访问，手机可直接连入体验）
-npm run build    # 产物构建（含 TypeScript 严格检查）
-npm run preview  # 预览构建产物
+npm run dev           # 本地开发（局域网可访问，手机可直接连入体验）
+npm run build         # 产物构建（含 TypeScript 严格检查）
+npm run preview       # 预览构建产物
+npm run demo:sync     # 构建并同步到 demo/（供仓库内直接浏览）
+npm run desktop:dev   # Electron 窗口 + Vite 热更新
+npm run package:win   # 重新打包 Windows EXE zip → release/
 ```
 
 打开终端输出的地址即可游玩。**建议戴耳机、关灯。**
