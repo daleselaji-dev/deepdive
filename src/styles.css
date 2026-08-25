@@ -227,6 +227,33 @@ body {
 #deco-label { font-size: 10px; letter-spacing: 0.3em; opacity: 0.8; }
 #deco-time { font-size: clamp(24px, 4vmin, 38px); font-weight: 300; margin: 4px 0 2px; }
 #deco-hint { font-size: 9px; letter-spacing: 0.2em; opacity: 0.55; }
+
+/* ============ 导览线罗盘 ============ */
+#guide {
+  position: absolute;
+  left: 50%; bottom: calc(3.4vh + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  text-align: center;
+  pointer-events: none;
+  transition: opacity 0.5s ease;
+}
+#guide-arrow {
+  font-size: 17px;
+  line-height: 1;
+  color: rgba(232, 163, 61, 0.85);
+  text-shadow: 0 0 8px rgba(232, 163, 61, 0.4);
+  transition: transform 0.18s linear;
+  will-change: transform;
+}
+#guide-label {
+  margin-top: 3px;
+  font-size: 9px;
+  letter-spacing: 0.34em;
+  opacity: 0.55;
+  white-space: nowrap;
+}
+#guide.off #guide-arrow { color: rgba(200, 52, 31, 0.9); text-shadow: 0 0 8px rgba(200, 52, 31, 0.4); animation: blink 1.1s steps(1) infinite; }
+#guide.off #guide-label { color: rgba(200, 92, 61, 0.9); opacity: 0.85; }
 #depthwrap {
   position: absolute;
   right: max(20px, env(safe-area-inset-right, 0px));

@@ -81,6 +81,11 @@ export class Game {
   private abyssMidT: number;
   private lastSpeed = 0;
   private sightBeat = 0;
+  private prevDepth = 0;
+  private ascentRate = 0; // 平滑后的上升速率 m/s（正=上升）
+  private ascentWarnAt = -99;
+  private o2Warn50 = false;
+  private o2Warn25 = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -168,6 +173,7 @@ export class Game {
         this.player.pitch = Math.asin(THREE.MathUtils.clamp(d.y, -1, 1));
         this.player.yaw = Math.atan2(-d.x, -d.z);
       },
+      boat: () => this.water.boatPos.toArray(),
       state: () => ({
         state: this.state,
         phase: this.phase,
@@ -359,13 +365,41 @@ export class Game {
     this.hud.setOxygen(this.oxygen / 100);
     this.hud.setDepth(depth);
 
-    // ---- 氮饱和（轻度机制，见 GDD §4.2） ----
-    if (depth > 18) this.nitrogen = Math.min(100, this.nitrogen + (depth - 18) / 32 * 0.32 * dt * 10);
+    // ---- 氮饱和（轻度机制，见 GDD §4.2）：47m 处约 12%/分钟 ----
+    if (depth > 18) this.nitrogen = Math.min(100, this.nitrogen + ((depth - 18) / 32) * 0.22 * dt);
     else if (depth < 10) this.nitrogen = Math.max(0, this.nitrogen - 0.9 * dt);
     this.hud.setNitrogen(this.nitrogen / 100);
 
+    // ---- 上升速率监控（气泡比你慢——潜水员铁律） ----
+    const rawRate = dt > 0 ? (this.prevDepth - depth) / dt : 0;
+    this.prevDepth = depth;
+    this.ascentRate += (rawRate - this.ascentRate) * Math.min(1, dt * 3);
+    if (
+      this.ascentRate > 2.3 && depth > 8 && this.nitrogen > 30 &&
+      this.time - this.ascentWarnAt > 10
+    ) {
+      this.ascentWarnAt = this.time;
+      this.nitrogen = Math.min(100, this.nitrogen + 4);
+      this.audio.radioBlip(0.5);
+      this.hud.subtitle('上升太快了。别超过你呼出的气泡。\n慢下来。', '潜水电脑', 4.5);
+    }
+
+    // ---- 气量三分法警报 ----
+    if (!this.o2Warn50 && this.oxygen < 50 && this.phase === 'descent') {
+      this.o2Warn50 = true;
+      this.storyCtx.radio('气压表过半了。按三分法你现在就该回头。\n……继续。备用瓶都在线上，我给你标了位置。', 7.5);
+    }
+    if (!this.o2Warn25 && this.oxygen < 25) {
+      this.o2Warn25 = true;
+      this.tension = Math.max(this.tension, 0.55);
+      this.hud.subtitle('气压表指针进入红区。\n每一口都开始有了重量。', '', 6);
+    }
+
     // ---- 阶段推进 ----
     this.updatePhase(dt);
+
+    // ---- 导览线罗盘 ----
+    this.updateGuide();
 
     // ---- 分区雾与曝光 ----
     this.updateEnvironment(dt, depth);
@@ -430,18 +464,22 @@ export class Game {
       case 'sighting':
         break; // 节拍由 sightingBeats() 驱动
       case 'return': {
-        // 减压逻辑（Loop D 完善 UI）：-6~-4m 停留
+        // 减压停留：-7.5~-3.5m 深度带计时；面板在接近停留带时出现
         const depth = p.depth;
-        if (this.decoNeed > 0 && !this.decoDone && depth < 7.5 && depth > 3.5) {
-          this.decoTimer += dt;
-          this.hud.setDeco(this.decoNeed - this.decoTimer, true);
-          if (this.decoTimer >= this.decoNeed) {
-            this.decoDone = true;
-            this.hud.setDeco(0, false);
-            this.hud.subtitle('减压完成。潜水电脑不再尖叫。\n上面的光很近了。', '', 5);
+        if (this.decoNeed > 0 && !this.decoDone) {
+          const inWindow = depth < 7.5 && depth > 3.5;
+          if (inWindow) {
+            this.decoTimer += dt;
+            if (this.decoTimer >= this.decoNeed) {
+              this.decoDone = true;
+              this.hud.hideDeco();
+              this.hud.subtitle('减压完成。潜水电脑不再尖叫。\n上面的光很近了。', '', 5);
+            }
           }
-        } else if (this.decoNeed > 0 && !this.decoDone) {
-          this.hud.setDeco(this.decoNeed - this.decoTimer, depth < 12);
+          if (!this.decoDone) {
+            if (depth < 16) this.hud.setDeco(this.decoNeed - this.decoTimer, inWindow);
+            else this.hud.hideDeco();
+          }
         }
         // 破水面
         if (p.position.y > -0.15) this.enterSurface();
@@ -457,6 +495,54 @@ export class Game {
         this.boardingFrame(dt);
         break;
     }
+  }
+
+  /**
+   * 导览线罗盘：
+   * - 主脉：沿行进方向（闭环 t 递增——下潜与回程同向）。
+   * - 支线下潜段：指向支线深处（错绳陷阱正是靠这一点成立）；回程段指回主线。
+   * - 塌方区：主线被割断——断线状态（Loop E 的 silt-out 一并使用）。
+   * - 水面：指向支援船。
+   */
+  private updateGuide(): void {
+    const p = this.player;
+    if (this.phase === 'boarding') {
+      this.hud.setGuide(null);
+      return;
+    }
+    let dir: THREE.Vector3;
+    let label = '导览线';
+    let offline = false;
+    if (this.phase === 'surface') {
+      dir = this.water.boatPos.clone().sub(p.position);
+      dir.y = 0;
+      label = '支援船';
+    } else if (p.pathId !== 0) {
+      const { tan } = this.cave.frameAt(p.pathId, p.curveT);
+      const outbound = this.phase === 'descent';
+      dir = outbound ? tan : tan.negate();
+      label = outbound ? '导览线' : '导览线 · 回主线';
+    } else {
+      const zone = this.cave.zoneAt(p.mainT);
+      if (zone === 'collapse' && this.phase === 'descent') {
+        this.hud.setGuide(0, 0, '线断了 · 沿岩缝走', true);
+        return;
+      }
+      const { tan } = this.cave.frameAt(0, p.mainT);
+      dir = tan;
+      offline = false;
+    }
+    if (dir.lengthSq() < 1e-6) {
+      this.hud.setGuide(null);
+      return;
+    }
+    dir.normalize();
+    const vert = dir.y;
+    const dirYaw = Math.atan2(-dir.x, -dir.z);
+    let rel = dirYaw - p.yaw;
+    while (rel > Math.PI) rel -= Math.PI * 2;
+    while (rel < -Math.PI) rel += Math.PI * 2;
+    this.hud.setGuide(rel, vert, label, offline);
   }
 
   /** 目击开场：水体异动 + 奇虾从深井升起（docs/GAME_DESIGN.md §3.1） */
@@ -605,6 +691,8 @@ export class Game {
     this.hypoxiaAt = this.time;
     this.hud.setHypoxiaVignette(true);
     this.hud.clearSubtitle();
+    this.hud.setGuide(null);
+    this.hud.hideDeco();
     this.snowDrift = 0.5; // 你在下沉——"雪"在往上飘
     this.audio.duckBed(0.15, 6);
     this.hud.subtitle('手电的光越来越暖。\n像很久以前某盏你熟悉的灯。', '', 8);

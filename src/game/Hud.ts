@@ -13,6 +13,9 @@ export class Hud {
     subtitle: document.getElementById('subtitle')!,
     slate: document.getElementById('slate')!,
     slateText: document.getElementById('slate-text')!,
+    guide: document.getElementById('guide')!,
+    guideArrow: document.getElementById('guide-arrow')!,
+    guideLabel: document.getElementById('guide-label')!,
     ending: document.getElementById('ending')!,
     endingQuote: document.getElementById('ending-quote')!,
     endingStat: document.getElementById('ending-stat')!,
@@ -83,6 +86,30 @@ export class Hud {
 
   hideDeco(): void {
     this.el.deco.classList.add('hidden');
+  }
+
+  /**
+   * 导览线罗盘。
+   * @param relAngle 目标方向相对视线的水平夹角（弧度，左正）；null 隐藏
+   * @param vert 目标方向的垂直分量（-1..1），用于「向上/向下」提示
+   * @param label 罗盘文字
+   * @param offline 断线状态（红色闪烁）
+   */
+  setGuide(relAngle: number | null, vert = 0, label = '导览线', offline = false): void {
+    if (relAngle === null) {
+      this.el.guide.classList.add('hidden');
+      return;
+    }
+    this.el.guide.classList.remove('hidden');
+    this.el.guide.classList.toggle('off', offline);
+    (this.el.guideArrow as HTMLElement).style.transform = `rotate(${(-relAngle * 180) / Math.PI}deg)`;
+    this.el.guideArrow.textContent = offline ? '✕' : '▲';
+    let txt = label;
+    if (!offline) {
+      if (vert > 0.55) txt = `${label} · 向上`;
+      else if (vert < -0.55) txt = `${label} · 向下`;
+    }
+    if (this.el.guideLabel.textContent !== txt) this.el.guideLabel.textContent = txt;
   }
 
   /** 字幕：who 为空则纯环境描述 */
