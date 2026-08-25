@@ -1,0 +1,151 @@
+/* 回声园 ECHO GARDEN — 原型样式 */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%; height: 100%;
+  background: #000;
+  overflow: hidden;
+  font-family: "Courier New", "Noto Sans Mono CJK SC", monospace;
+  color: #9fd8cf;
+}
+
+#stage { position: relative; width: 100vw; height: 100vh; }
+#game { display: block; width: 100%; height: 100%; background: #010208; cursor: crosshair; }
+
+.hidden { display: none !important; }
+
+/* ---------- HUD ---------- */
+#hud { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+
+.hud-left {
+  position: absolute; top: 18px; left: 18px;
+  background: rgba(2, 8, 10, 0.55);
+  border: 1px solid rgba(159, 216, 207, 0.25);
+  padding: 10px 14px;
+  min-width: 190px;
+  text-shadow: 0 0 6px rgba(159, 216, 207, 0.5);
+}
+.gauge-label { font-size: 11px; letter-spacing: 2px; opacity: 0.7; }
+.gauge-num { font-size: 14px; }
+.gauge-row { display: flex; justify-content: space-between; margin-top: 6px; }
+.o2-bar {
+  width: 100%; height: 10px; margin: 4px 0 2px;
+  border: 1px solid rgba(159, 216, 207, 0.4);
+  background: rgba(0,0,0,0.5);
+}
+#o2fill { height: 100%; width: 100%; background: #9fd8cf; transition: width 0.2s linear, background 0.4s; }
+.o2-low #o2fill { background: #ff4d4d; }
+.o2-low #o2pct { color: #ff4d4d; animation: blink 0.7s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0.15; } }
+
+.hud-right {
+  position: absolute; top: 18px; right: 18px; text-align: right;
+  font-size: 12px; letter-spacing: 1px;
+  text-shadow: 0 0 6px rgba(159, 216, 207, 0.5);
+}
+#seedtag { opacity: 0.8; }
+#objective { margin-top: 6px; color: #e8c33a; }
+
+#warn {
+  position: absolute; top: 110px; left: 50%; transform: translateX(-50%);
+  color: #ff4d4d; font-size: 14px; letter-spacing: 3px;
+  text-shadow: 0 0 8px rgba(255, 77, 77, 0.8);
+  animation: blink 0.9s steps(2) infinite;
+}
+
+#hint {
+  position: absolute; bottom: 12px; right: 16px;
+  font-size: 11px; opacity: 0.35; letter-spacing: 1px;
+}
+
+#msgbox {
+  position: absolute; bottom: 64px; left: 50%; transform: translateX(-50%);
+  max-width: 720px; width: 86%;
+  text-align: center;
+  font-size: 16px; line-height: 1.7; letter-spacing: 2px;
+  color: #cfe3da;
+  text-shadow: 0 0 10px rgba(159, 216, 207, 0.7), 0 2px 2px #000;
+  min-height: 30px;
+}
+
+/* ---------- 暗角 / CRT ---------- */
+#vignette {
+  position: absolute; inset: 0; pointer-events: none; z-index: 8;
+  background:
+    repeating-linear-gradient(0deg, rgba(0,0,0,0.08) 0 1px, transparent 1px 3px),
+    radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.55) 100%);
+}
+
+/* ---------- 覆盖层 ---------- */
+.overlay {
+  position: absolute; inset: 0; z-index: 10;
+  background: #000;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* 冷开场 */
+.cold-open { max-width: 640px; padding: 24px; text-align: center; }
+.cold-open .line {
+  opacity: 0;
+  animation: rise 1.6s ease forwards;
+  font-size: 15px; line-height: 2.1; letter-spacing: 2px;
+  color: #b9cfc9;
+}
+.cold-open em { font-style: normal; color: #e8e2c9; text-shadow: 0 0 12px rgba(232, 195, 58, 0.35); }
+.l1 { animation-delay: 0.8s; }
+.l2 { animation-delay: 2.6s; font-size: 13px !important; opacity: 0; color: #7d918c !important; }
+.l3 { animation-delay: 4.6s; }
+.l4 { animation-delay: 6.4s; }
+.l5 { animation-delay: 8.4s; }
+.l6 { animation-delay: 10.6s; }
+.l7 { animation-delay: 12.4s; }
+.l8 { animation-delay: 13.4s; }
+.l9 { animation-delay: 14.2s; }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+.cold-open h1 {
+  margin: 26px 0 8px;
+  font-size: 42px; letter-spacing: 14px; font-weight: normal;
+  color: #cfe3ff; text-shadow: 0 0 24px rgba(120, 170, 255, 0.35);
+}
+.cold-open h1 span { display: block; font-size: 13px; letter-spacing: 8px; opacity: 0.5; margin-top: 6px; }
+
+#start {
+  margin-top: 18px; padding: 12px 26px;
+  background: transparent; color: #9fd8cf;
+  border: 1px solid rgba(159, 216, 207, 0.5);
+  font: inherit; font-size: 15px; letter-spacing: 3px;
+  cursor: pointer; transition: all 0.25s;
+}
+#start:hover { background: rgba(159, 216, 207, 0.12); box-shadow: 0 0 24px rgba(159, 216, 207, 0.25); }
+
+.safety { font-size: 11px !important; color: #5c6f6a !important; margin-top: 26px; line-height: 1.8 !important; }
+
+/* 结算 */
+.panel {
+  max-width: 460px; width: 90%;
+  border: 1px solid rgba(159, 216, 207, 0.3);
+  background: rgba(3, 8, 10, 0.92);
+  padding: 34px 34px 24px; text-align: center;
+  animation: rise 1.2s ease forwards;
+}
+.panel h2 { font-weight: normal; font-size: 34px; letter-spacing: 18px; text-indent: 18px; margin-bottom: 10px; }
+.dead-panel h2 { color: #ff4d4d; text-shadow: 0 0 18px rgba(255, 77, 77, 0.5); }
+.win-panel h2 { color: #cfe3ff; text-shadow: 0 0 18px rgba(160, 200, 255, 0.5); }
+.epitaph { font-size: 13px; opacity: 0.7; letter-spacing: 2px; margin-bottom: 18px; }
+.stats {
+  text-align: left; font-size: 14px; line-height: 2.1; letter-spacing: 1px;
+  border-top: 1px dashed rgba(159, 216, 207, 0.25);
+  border-bottom: 1px dashed rgba(159, 216, 207, 0.25);
+  padding: 12px 6px; margin-bottom: 20px; white-space: pre-line;
+}
+.btnrow { display: flex; gap: 12px; justify-content: center; }
+.btnrow button {
+  padding: 10px 16px; background: transparent; color: #9fd8cf;
+  border: 1px solid rgba(159, 216, 207, 0.5);
+  font: inherit; font-size: 13px; letter-spacing: 2px; cursor: pointer; transition: all 0.2s;
+}
+.btnrow button:hover { background: rgba(159, 216, 207, 0.12); }
+.footnote { margin-top: 18px; font-size: 11px; opacity: 0.45; letter-spacing: 2px; }
+
+#dead.overlay { background: radial-gradient(ellipse at center, #12000015 0%, #000 75%); }

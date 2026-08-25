@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>回声园 ECHO GARDEN — 洞穴潜水原型</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="stage">
+  <canvas id="game"></canvas>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div class="hud-left">
+      <div class="gauge">
+        <div class="gauge-label">气体 O₂</div>
+        <div class="o2-bar"><div id="o2fill"></div></div>
+        <div id="o2pct" class="gauge-num">100%</div>
+      </div>
+      <div class="gauge-row"><span class="gauge-label">深度</span><span id="depth" class="gauge-num">-0.0 m</span></div>
+      <div class="gauge-row"><span class="gauge-label">用时</span><span id="time" class="gauge-num">00:00</span></div>
+      <div class="gauge-row"><span class="gauge-label">导览线</span><span id="line" class="gauge-num">204 m</span></div>
+    </div>
+    <div class="hud-right">
+      <div id="seedtag">洞穴 #—</div>
+      <div id="objective">任务：下潜，收回断线</div>
+    </div>
+    <div id="warn"></div>
+    <div id="hint">WASD/方向键 移动 · 鼠标 照明方向 · Shift 缓速(少扬尘) · M 声音 · R 重开</div>
+    <div id="msgbox"><span id="msg"></span></div>
+  </div>
+
+  <!-- 冷开场 -->
+  <div id="title" class="overlay">
+    <div class="cold-open">
+      <p class="line l1">本作灵感来自真实的洞穴潜水事故与真实存在的喀斯特地下河系统。</p>
+      <p class="line l2">出于对逝者与探洞者的尊重，地名、人物与数据均已虚构。</p>
+      <p class="line l3">在西南某地的甘蔗田之间，有一口没有名字的天窗。</p>
+      <p class="line l4">当地人叫它——<em>回声园</em>。</p>
+      <p class="line l5">最深的一次探测停在 <em>-214 米</em>。绳子在那里断了。</p>
+      <p class="line l6">今天，轮到你收回那段绳子。</p>
+      <h1 class="line l7">回声园 <span>ECHO GARDEN</span></h1>
+      <button id="start" class="line l8">［ 戴上面镜 · 开始下潜 ］</button>
+      <p class="line l9 safety">真实洞穴潜水需要系统训练与专业装备。<br>永远不要在未受训练的情况下进入水下洞穴。</p>
+    </div>
+  </div>
+
+  <!-- 死亡结算 -->
+  <div id="dead" class="overlay hidden">
+    <div class="panel dead-panel">
+      <h2>未 归</h2>
+      <p class="epitaph">回声园记下了你最后的深度。</p>
+      <div id="deadStats" class="stats"></div>
+      <div class="btnrow">
+        <button id="retry1">再次下潜 [R]</button>
+        <button id="copy1">复制下潜日志</button>
+      </div>
+      <p class="footnote">同一天，所有人潜的是同一个洞。</p>
+    </div>
+  </div>
+
+  <!-- 生还结算 -->
+  <div id="win" class="overlay hidden">
+    <div class="panel win-panel">
+      <h2>生 还</h2>
+      <p class="epitaph">你把绳子带回来了。它比下去时更沉。</p>
+      <div id="winStats" class="stats"></div>
+      <div class="btnrow">
+        <button id="retry2">再次下潜 [R]</button>
+        <button id="copy2">复制下潜日志</button>
+      </div>
+      <p class="footnote">把日志发给一个你觉得不敢下去的人。</p>
+    </div>
+  </div>
+
+  <div id="vignette"></div>
+</div>
+<script src="game.js"></script>
+</body>
+</html>
