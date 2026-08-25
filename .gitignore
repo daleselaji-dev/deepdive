@@ -1,4 +1,7 @@
 node_modules/
 dist/
+dist-single/
+.cache/
+release/DeepDive-win32-x64/
 *.local
 .DS_Store
