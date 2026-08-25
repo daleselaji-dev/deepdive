@@ -40,7 +40,7 @@ function skinMaterial(): THREE.ShaderMaterial {
         float wrap = ndl * 0.5 + 0.5;
         float dist = length(vP);
         float atten = clamp(uLamp * 12.0 / (1.0 + dist * dist * 0.09), 0.0, 0.9);
-        atten = max(atten, uGlow * 0.2);
+        atten = max(atten, uGlow * 0.13);
         vec3 base = uColor * (0.02 + 0.98 * wrap * wrap * wrap) * atten;
         float fres = pow(1.0 - abs(dot(n, vd)), 2.2);
         vec3 rim = uRimColor * fres * (0.3 * atten + uGlow * (1.5 + 0.4 * sin(uTime * 1.7)));
@@ -109,7 +109,7 @@ export class Creature {
     for (let i = 0; i < 40; i++) {
       const k = Math.random();
       const lane = i % 3;
-      const s = makeGlowSprite(lane === 2 ? 0xb08cff : 0x86e2ff, 0.26 + Math.random() * 0.22, 0);
+      const s = makeGlowSprite(lane === 2 ? 0xb08cff : 0x86e2ff, 0.12 + Math.random() * 0.1, 0);
       if (lane < 2) {
         // 双列侧灯：沿躯干规则分布（生物灯塔感）
         const zi = (i / 3) / 13;
@@ -173,10 +173,10 @@ export class Creature {
     for (const s of this.spots) (s.material as THREE.SpriteMaterial).opacity = 1;
   }
 
-  /** 面向目标后侧转 0.55rad → 3/4 视角（躯干可见）。 */
+  /** 面向目标后侧转 → 3/4 视角（躯干灯列可见）。 */
   aimAt(target: THREE.Vector3) {
     this.group.lookAt(target);
-    this.group.rotateY(0.55);
+    this.group.rotateY(0.85);
   }
 
   hide() { this.group.visible = false; }
@@ -203,7 +203,7 @@ export class Creature {
     if (this.skin.uniforms.uGlow.value > 0) {
       for (let i = 0; i < this.spots.length; i++) {
         const m = this.spots[i].material as THREE.SpriteMaterial;
-        m.opacity = 0.55 + 0.45 * Math.sin(time * 1.3 + i * 0.55);
+        m.opacity = 0.42 + 0.33 * Math.sin(time * 1.3 + i * 0.55);
       }
       this.glowLight.intensity = 40 + 12 * Math.sin(time * 0.8);
       (this.halo.material as THREE.SpriteMaterial).opacity = 0.3 + 0.14 * Math.sin(time * 0.62);

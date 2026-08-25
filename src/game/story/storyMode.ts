@@ -66,7 +66,7 @@ export class StoryMode implements GameMode {
   private lampEffective = 1;
   private battery = 1;
   private battWarned = 0;
-  private spotBase = 60;
+  private spotBase = 50;
   private fillBase = 2.5;
   private spot!: THREE.SpotLight;
   private fill!: THREE.PointLight;
@@ -119,7 +119,7 @@ export class StoryMode implements GameMode {
 
     // 手电装备（跟随相机）
     this.lampRig = new THREE.Group();
-    this.spot = new THREE.SpotLight(0xfff0d6, this.spotBase, 38, 0.5, 0.55, 1.4);
+    this.spot = new THREE.SpotLight(0xfff0d6, this.spotBase, 38, 0.5, 0.68, 1.4);
     this.spot.position.set(0.22, -0.16, 0);
     this.spot.target.position.set(0, 0, -12);
     this.lampRig.add(this.spot, this.spot.target);
@@ -188,10 +188,14 @@ export class StoryMode implements GameMode {
   resetPlayer() {
     this.pos.copy(this.cave.spawnPos);
     this.vel.set(0, 0, 0);
-    this.yaw = 0; // 相机默认朝 -z，即隧道方向
-    this.pitch = -0.1;
+    // 入水第一眼：仰望水面与下泻光柱（首屏奇观），转身向下即是黑暗的隧道
+    this.yaw = Math.PI;
+    this.pitch = 1.28;
     this.sampleIdx = 8;
     this.o2 = MAX_O2;
+    this.battery = 1;
+    this.battWarned = 0;
+    this.o2Bonus = 0;
   }
 
   // ---------- 调试钩子（?debug=1 时由 game.ts 暴露到 window.__dd） ----------

@@ -136,7 +136,7 @@ function injectRockShader(mat: THREE.MeshStandardMaterial, u: RockUniforms) {
             f.z);
         }
         float rockDetail(vec3 p) {
-          return rockVNoise(p * 2.6) * 0.62 + rockVNoise(p * 8.5) * 0.38;
+          return rockVNoise(p * 2.2) * 0.62 + rockVNoise(p * 6.4) * 0.38;
         }
         // 水面折射焦散（干涉纹样，3 次迭代；坐标偏移避开原点，除法有保护，输出钳制防 NaN/inf）
         float causticPattern(vec2 p, float t) {
@@ -188,7 +188,7 @@ function injectRockShader(mat: THREE.MeshStandardMaterial, u: RockUniforms) {
             float nUp = clamp(normalize(vRockWN).y, 0.0, 1.0);
             float upFace = nUp * nUp * 0.95;
             float ca = causticPattern(vRockWP.xz * 0.85, uTime * 0.42);
-            totalEmissiveRadiance += vec3(0.45, 0.85, 0.95) * ca * depthFade * upFace * 0.12;
+            totalEmissiveRadiance += vec3(0.45, 0.85, 0.95) * ca * depthFade * upFace * 0.10;
           }
         }
         // 生物膜辉纹：稀疏丝缕状青→紫脉动（高频掩码提结构感）
@@ -239,7 +239,7 @@ export class CaveSystem {
     );
 
     this.rockUniforms.uCaustics.value = quality.microDetail ? 1 : 0;
-    this.rockUniforms.uBump.value = quality.microDetail ? 0.55 : 0;
+    this.rockUniforms.uBump.value = quality.microDetail ? 0.3 : 0;
 
     this.buildSamples();
     this.buildTunnel(quality);
@@ -248,9 +248,8 @@ export class CaveSystem {
     this.buildGuideline();
     this.buildSpeleothems(quality);
 
-    // 出生点：入口下方，面向隧道
-    const s0 = this.sampleAtT(0.03);
-    this.spawnPos.copy(s0.pos).addScaledVector(s0.down, -s0.radius * 0.1);
+    // 出生点：竖井底部（第一眼可仰望水面与光柱），转身即是隧道
+    this.spawnPos.set(0, -2.7, -0.5);
 
     // 入口天光
     const spot = new THREE.SpotLight(0x9fe0ff, 52, 58, 0.5, 0.85, 1.5);
@@ -429,8 +428,8 @@ export class CaveSystem {
 
   /** 入口竖井 + 水面仰视盘 + 光柱。 */
   private buildEntrance() {
-    const shaft = new THREE.CylinderGeometry(3.6, 4.4, 12, 20, 8, true);
-    shaft.translate(0, 2, 0);
+    const shaft = new THREE.CylinderGeometry(4.2, 5.0, 14, 32, 9, true);
+    shaft.translate(0, 2.5, 0);
     const pos = shaft.attributes.position as THREE.BufferAttribute;
     const v = new THREE.Vector3();
     const wet = new Float32Array(pos.count);
@@ -452,6 +451,35 @@ export class CaveSystem {
     injectRockShader(mat, this.rockUniforms);
     const mesh = new THREE.Mesh(shaft, mat);
     this.group.add(mesh);
+
+    // 井底弹射补光：让领口与井壁在仰望时可读
+    const bounce = new THREE.PointLight(0x6fb0c4, 9, 22, 1.7);
+    bounce.position.set(0, -1.2, 0);
+    this.group.add(bounce);
+
+    // 井口岩石领口：填补竖井与隧道之间的可视空洞（从下方仰望时的洞顶）
+    const collar = new THREE.RingGeometry(4.1, 16, 28, 5);
+    collar.rotateX(Math.PI / 2); // 面朝 -y（从下方可见）
+    collar.translate(0, -3.5, 0);
+    const cpos = collar.attributes.position as THREE.BufferAttribute;
+    const cv = new THREE.Vector3();
+    const cwet = new Float32Array(cpos.count);
+    for (let i = 0; i < cpos.count; i++) {
+      cv.fromBufferAttribute(cpos, i);
+      const n = this.wallNoise(cv);
+      // 越靠外越向下垂（穹顶感）
+      const rr = Math.hypot(cv.x, cv.z);
+      cpos.setY(i, cv.y - (rr - 4.1) * 0.35 + n * 1.4);
+      cwet[i] = 0.6;
+    }
+    collar.setAttribute('aWet', new THREE.BufferAttribute(cwet, 1));
+    collar.setAttribute('aGlow', new THREE.BufferAttribute(new Float32Array(cpos.count), 1));
+    collar.computeVertexNormals();
+    const collarMat = new THREE.MeshStandardMaterial({
+      color: 0x5f6a60, roughness: 0.9, metalness: 0.05, side: THREE.DoubleSide,
+    });
+    injectRockShader(collarMat, this.rockUniforms);
+    this.group.add(new THREE.Mesh(collar, collarMat));
 
     // 水面仰视盘：从下方看向明亮摇曳的水面（HDR 亮度喂给 Bloom）
     this.surfaceMat = new THREE.ShaderMaterial({
@@ -484,15 +512,15 @@ export class CaveSystem {
         }
       `,
     });
-    const surf = new THREE.Mesh(new THREE.CircleGeometry(4.8, 48), this.surfaceMat);
+    const surf = new THREE.Mesh(new THREE.CircleGeometry(5.6, 48), this.surfaceMat);
     surf.rotation.x = Math.PI / 2;
-    surf.position.set(0, 9.9, 0);
+    surf.position.set(0, 11.4, 0);
     surf.renderOrder = 18;
     this.group.add(surf);
 
     // 水面辉光盘
-    const glowS = makeGlowSprite(0xbdf3ff, 9, 0.55);
-    glowS.position.set(0, 9.5, 0);
+    const glowS = makeGlowSprite(0xbdf3ff, 10, 0.55);
+    glowS.position.set(0, 10.8, 0);
     this.group.add(glowS);
 
     // 三根下射光柱
