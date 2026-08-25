@@ -109,13 +109,13 @@ export class Player {
       if (vn > 0) this.velocity.addScaledVector(n, -vn * 1.25); // 缓冲反弹
     }
 
-    // 相机：游动摆动 + 转头惯性滚转
+    // 相机：游动摆动 + 转头惯性滚转（低幅——晃出水感，不晃出晕眩）
     const speed = this.velocity.length();
     this.swimPhase += dt * (1.2 + speed * 0.55);
-    const bobY = Math.sin(this.swimPhase * 1.7) * 0.02 * Math.min(1, speed);
-    const roll = Math.sin(this.swimPhase * 0.8) * 0.008 + look.dx * -0.00012;
+    const bobY = Math.sin(this.swimPhase * 1.7) * 0.012 * Math.min(1, speed);
+    const roll = Math.sin(this.swimPhase * 0.8) * 0.0045 + look.dx * -0.00007;
     this.camera.position.copy(this.position);
-    this.camera.position.y += bobY + Math.sin(time * 0.7) * 0.012;
+    this.camera.position.y += bobY + Math.sin(time * 0.7) * 0.007;
     this.euler.set(this.pitch, this.yaw, roll);
     this.camera.quaternion.setFromEuler(this.euler);
 
@@ -125,8 +125,8 @@ export class Player {
     this.lightRig.quaternion.slerp(this.camera.quaternion, lag);
     this.flashlight.position.set(0.14, -0.12, 0.05);
     this.lightTarget.position.set(
-      Math.sin(time * 1.1) * 0.24 + Math.sin(time * 2.7) * 0.07,
-      Math.cos(time * 0.9) * 0.2,
+      Math.sin(time * 1.1) * 0.15 + Math.sin(time * 2.7) * 0.045,
+      Math.cos(time * 0.9) * 0.13,
       -10,
     );
 

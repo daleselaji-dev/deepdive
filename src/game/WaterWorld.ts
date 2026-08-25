@@ -439,7 +439,7 @@ export class WaterWorld {
   update(dt: number, time: number): void {
     this.waterMat.uniforms.uTime.value = time;
     for (const m of this.beamMats) m.uniforms.uTime.value = time;
-    this.rayMat.opacity = 0.42 + Math.sin(time * 0.4) * 0.1 + Math.sin(time * 1.7) * 0.04;
+    this.rayMat.opacity = 0.42 + Math.sin(time * 0.4) * 0.1 + Math.sin(time * 1.7) * 0.02;
 
     // 焦散帧循环（~11fps）
     this.causticTimer += dt;
@@ -449,7 +449,7 @@ export class WaterWorld {
       (this.causticMesh.material as THREE.MeshBasicMaterial).map = this.caustics[this.causticIdx];
     }
     // 太阳光微颤（水面折射感；幅度收敛避免闪烁不适）
-    this.sunLight.intensity = 460 + Math.sin(time * 1.1) * 20 + Math.sin(time * 2.3) * 9;
+    this.sunLight.intensity = 460 + Math.sin(time * 1.1) * 9 + Math.sin(time * 2.3) * 4;
 
     // 船体轻摇
     this.boat.position.y = this.boatPos.y + Math.sin(time * 0.8) * 0.05;
