@@ -23,7 +23,8 @@ const SPOTS = [
   ['z4-hall-tower', 'hall', 0.45, -1.5, -0.1, 1200],
   ['z5-halocline', 'halo', 0.5, -1.8, -0.3, 1200],
   ['z6-wreck', 'wreck', 0.45, -2.1, -0.4, 1200],
-  ['z7-collapse', 'collapse', 0.5, -2.3, 0, 900],
+  ['z6-silt', 'SILT', 0, 0, 0, 2200],
+  ['z7-collapse', 'collapse', 0.3, -2.3, 0, 1400],
   ['z8-abyss', 'abyss', 0.45, -2.5, -0.2, 1300],
   ['z8-pit', 'abyss', 0.55, -2.5, -1.0, 900],
   // 目击演出：frac 复用为演出进度 k（sightAt 快进 + lookAncient 对准）
@@ -64,6 +65,15 @@ async function main() {
   for (const [name, zone, frac, yaw, pitch, wait] of SPOTS) {
     if (zone === null) {
       await new Promise((r) => setTimeout(r, wait));
+    } else if (zone === 'SILT') {
+      // 搅浑水验证：手动触发白雾 → 截图 → 立即清除避免污染后续
+      await page.evaluate(() => window.__dd.silt(30));
+      await new Promise((r) => setTimeout(r, wait));
+      await page.screenshot({ path: path.join(outDir, `${name}.png`) });
+      await page.evaluate(() => window.__dd.silt(0));
+      await new Promise((r) => setTimeout(r, 1500));
+      console.log('  ✓', name);
+      continue;
     } else if (zone === 'SIGHT') {
       // 快进演出到指定进度并对准生物（无头下游戏时间慢于墙钟，不能等真实时间）
       await page.evaluate((first, k) => {
@@ -84,6 +94,7 @@ async function main() {
           }
           dd.zone(z2, f2);
           dd.look(y2, p2);
+          dd.silt(0); // 跳区会补触发剧情节点（含搅浑水）——清掉避免污染画面
         },
         zone, frac, yaw, pitch,
       );
@@ -101,6 +112,9 @@ async function main() {
         if (!open) break;
         await new Promise((r) => setTimeout(r, 550));
       }
+      // 剧情节点已在等待期间触发完毕，此刻再清一次浑水并让雾瞬间归位
+      await page.evaluate(() => window.__dd.silt(0));
+      await new Promise((r) => setTimeout(r, 450));
     }
     await page.screenshot({ path: path.join(outDir, `${name}.png`) });
     console.log('  ✓', name);

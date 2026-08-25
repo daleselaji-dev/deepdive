@@ -86,6 +86,8 @@ export class Game {
   private ascentWarnAt = -99;
   private o2Warn50 = false;
   private o2Warn25 = false;
+  private siltUntil = -1; // 搅浑水结束时刻
+  private envSnap = false; // 调试跳转后雾立即归位
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -174,6 +176,10 @@ export class Game {
         this.player.yaw = Math.atan2(-d.x, -d.z);
       },
       boat: () => this.water.boatPos.toArray(),
+      silt: (seconds: number) => {
+        this.siltUntil = this.time + seconds;
+        if (seconds <= 0) this.envSnap = true;
+      },
       state: () => ({
         state: this.state,
         phase: this.phase,
@@ -265,15 +271,27 @@ export class Game {
       void this.hud.showSlate(text);
     },
     tank: (prop: CaveProp) => {
-      const idx = this.story.tankIndex(prop);
-      this.oxygen = Math.min(100, this.oxygen + TANK_REFILL);
-      this.audio.tankPickup();
-      this.hud.subtitle(Story.tankText(idx), '', 6.5);
+      const meta = Story.tankMeta(this.story.tankIndex(prop));
+      if (!meta.empty) {
+        this.oxygen = Math.min(100, this.oxygen + TANK_REFILL);
+        this.audio.tankPickup();
+      } else {
+        // 空瓶：只有金属叩击，没有换气阀的嘶声——那声空响本身就是线索
+        this.audio.radioBlip(0.4);
+        this.tension = Math.max(this.tension, 0.5);
+      }
+      this.hud.subtitle(meta.text, '', 6.5);
     },
     silenceBegins: () => this.audio.duckBed(0.04, 9),
     scare: () => {
       this.scare.trigger(this.cave, this.player, this.audio);
       this.scareAt = this.time;
+    },
+    siltOut: (seconds: number) => {
+      this.siltUntil = this.time + seconds;
+      this.tension = Math.max(this.tension, 0.6);
+      this.audio.duckBed(0.4, 3);
+      this.audio.ancientCall(0.3); // 扫过船底的"什么东西"——远处的低频（伏笔）
     },
   };
 
@@ -531,6 +549,7 @@ export class Game {
       const { tan } = this.cave.frameAt(0, p.mainT);
       dir = tan;
       offline = false;
+      if (this.time < this.siltUntil) label = '白雾 · 握住线';
     }
     if (dir.lengthSq() < 1e-6) {
       this.hud.setGuide(null);
@@ -636,13 +655,13 @@ export class Game {
         this.hud.showEnding(
           'bends',
           '你趴在船板上，关节里有细小的针。\n咳出的泡沫在晨光里是粉红色的。\n你把深渊带上来了一点。',
-          `最大深度 -${this.maxDepth.toFixed(1)}M · 用时 ${timeStr} 分钟 · 写字板 ${slates}/7\n结局：血里的针（跳过了减压停留）`,
+          `最大深度 -${this.maxDepth.toFixed(1)}M · 用时 ${timeStr} 分钟 · 写字板 ${slates}/${this.story.slateTotal}\n结局：血里的针（跳过了减压停留）`,
         );
       } else {
         this.hud.showEnding(
           'dawn',
           '太阳正从丛林线上升起来。\n你看见过它照不到的地方，\n以及在那里等了五亿年的东西。',
-          `最大深度 -${this.maxDepth.toFixed(1)}M · 用时 ${timeStr} 分钟 · 写字板 ${slates}/7\n结局：破晓`,
+          `最大深度 -${this.maxDepth.toFixed(1)}M · 用时 ${timeStr} 分钟 · 写字板 ${slates}/${this.story.slateTotal}\n结局：破晓`,
         );
       }
       document.exitPointerLock?.();
@@ -670,6 +689,14 @@ export class Game {
       den = 0.085;
       exp = 0.82;
     }
+    // 搅浑水 silt-out：白雾吞掉能见度，尾段 6s 缓慢散开
+    if (this.time < this.siltUntil) {
+      const left = this.siltUntil - this.time;
+      const k2 = Math.min(1, left / 6);
+      fogColor.lerp(new THREE.Color(0x4a4438), 0.85 * k2);
+      den = den + (0.24 - den) * k2;
+      exp = exp - 0.1 * k2;
+    }
     // 水面之上：清晨空气
     if (this.phase === 'surface' || this.phase === 'boarding' || this.player.position.y > -0.1) {
       fogColor = new THREE.Color(0x14212a);
@@ -677,7 +704,8 @@ export class Game {
       exp = 1.05;
     }
 
-    const k = Math.min(1, dt * 1.4);
+    const k = this.envSnap ? 1 : Math.min(1, dt * 1.4);
+    this.envSnap = false;
     fog.color.lerp(fogColor, k);
     fog.density += (den - fog.density) * k;
     (this.scene.background as THREE.Color).copy(fog.color).multiplyScalar(0.5);
