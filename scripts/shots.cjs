@@ -16,7 +16,7 @@ const CHROME = ['/usr/local/bin/google-chrome', '/usr/bin/google-chrome-stable',
 /** [名称, 区名, 区内比例, yaw, pitch, 额外等待ms] —— yaw/pitch 为弧度 */
 const SPOTS = [
   ['title', null, 0, 0, 0, 2600],
-  ['z1-shaft-lookup', 'shaft', 0.35, 0.4, 1.3, 1400],
+  ['z1-shaft-lookup', 'shaft', 0.35, -2.2, 1.15, 3400],
   ['z1-shaft-side', 'shaft', 0.55, -0.6, 0.4, 900],
   ['z2-gallery', 'gallery', 0.5, -1.1, 0.05, 900],
   ['z3-throat', 'throat', 0.5, -1.4, 0, 900],
@@ -33,6 +33,7 @@ const SPOTS = [
   ['sight-gaze', 'SIGHT', 0.47, 0, 0, 1600],
   ['sight-leave', 'SIGHT', 0.8, 0, 0, 1600],
   ['z9-chimney', 'chimney', 0.4, 2.6, 0.75, 900],
+  ['buddy-escort', 'BUDDY', 0, 0, 0, 2400],
   ['surface-boat', 'SURFACE', 0, 0, 0, 2600],
 ];
 
@@ -100,7 +101,7 @@ async function main() {
       await page.evaluate(() => window.__dd.silt(0));
       await new Promise((r) => setTimeout(r, 450));
     } else if (zone === 'SURFACE') {
-      // 水面英雄镜头：破水 → 看向支援船与晨光
+      // 水面英雄镜头：破水 → 看向支援船与晨光（必须从池内一侧接近，池外会穿崖壁）
       await page.evaluate(() => {
         const dd = window.__dd;
         dd.phase('return');
@@ -110,13 +111,36 @@ async function main() {
       await page.evaluate(() => {
         const dd = window.__dd;
         const b = dd.mark('boat');
-        dd.move(b[0] - 5, -0.1, b[2] - 5);
+        dd.move(b[0] + 4.6, -0.1, b[2] + 2.6);
       });
       await new Promise((r) => setTimeout(r, wait));
       await page.evaluate(() => {
         const dd = window.__dd;
         const b = dd.mark('boat');
-        dd.lookWorld(b[0], b[1] + 1.2, b[2]);
+        dd.lookWorld(b[0], b[1] + 0.9, b[2]);
+      });
+      await new Promise((r) => setTimeout(r, 400));
+    } else if (zone === 'BUDDY') {
+      // 潜伴护送段：回到竖井中段，把特奥瞬移到身边（跟随限速追不上传送）
+      await page.evaluate(() => {
+        const dd = window.__dd;
+        const title = document.getElementById('title');
+        if (title && !title.classList.contains('hidden')) document.getElementById('start').click();
+        dd.zone('shaft', 0.3);
+        dd.buddyWarp();
+      });
+      await new Promise((r) => setTimeout(r, wait));
+      await page.evaluate(() => {
+        const dd = window.__dd;
+        dd.buddyGesture('ok');
+        const b = dd.buddy();
+        dd.lookWorld(b.pos[0], b.pos[1], b.pos[2]);
+      });
+      await new Promise((r) => setTimeout(r, 1100));
+      await page.evaluate(() => {
+        const dd = window.__dd;
+        const b = dd.buddy();
+        dd.lookWorld(b.pos[0], b.pos[1], b.pos[2]);
       });
       await new Promise((r) => setTimeout(r, 400));
     } else if (zone === 'SILT') {

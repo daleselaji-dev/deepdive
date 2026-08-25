@@ -51,8 +51,8 @@ export class Buddy {
 
   // ---------- 模型 ----------
   private buildModel(): void {
-    const suit = new THREE.MeshStandardMaterial({ color: 0x1a2226, roughness: 0.82 });
-    const skin = new THREE.MeshStandardMaterial({ color: 0x8a6a52, roughness: 0.7 });
+    const suit = new THREE.MeshStandardMaterial({ color: 0x10151a, roughness: 0.92 });
+    const skin = new THREE.MeshStandardMaterial({ color: 0x23282c, roughness: 0.85 }); // 干式手套
     const accent = new THREE.MeshStandardMaterial({ color: ACCENT, emissive: 0x3a2e08, roughness: 0.6 });
     const steel = new THREE.MeshStandardMaterial({ color: 0xb9bfc4, metalness: 0.8, roughness: 0.32 });
     this.visor = new THREE.MeshStandardMaterial({

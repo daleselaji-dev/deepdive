@@ -252,6 +252,9 @@ export class Game {
         gesturing: this.buddy.gesturing,
       }),
       buddyGesture: (k: BuddyGesture) => this.buddy.gesture(k),
+      buddyWarp: () => {
+        this.buddy.spawn(this.player.position.clone().add(new THREE.Vector3(-1.4, 0.6, 1.4)));
+      },
       relics: () => `${this.story.relicsSeen}/${this.story.relicTotal}`,
       sim: (id: number) => this.startSim(id),
       simState: () => this.sim.debugState(),

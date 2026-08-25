@@ -80,7 +80,8 @@ async function main() {
       window.__dd.zone('chimney', 0.9);
     });
     await swimToBoat(page);
-    const end = await waitEnding(page, 150000);
+    // 登船 4.5 游戏秒；无头软渲染下游戏时间可能比墙钟慢 10 倍以上
+    const end = await waitEnding(page, 360000);
     if (!end.cls.includes('dawn')) throw new Error('E1 期望 dawn，实际：' + end.cls);
     if (!end.stat.includes('破晓')) throw new Error('E1 文案缺失：' + end.stat);
     await page.screenshot({ path: path.join(outDir, 'ending-dawn.png') });
@@ -108,7 +109,7 @@ async function main() {
     await page.evaluate(() => window.__dd.zone('chimney', 0.9));
     await new Promise((r) => setTimeout(r, 800));
     await swimToBoat(page);
-    const end = await waitEnding(page, 150000);
+    const end = await waitEnding(page, 360000);
     if (!end.cls.includes('bends')) throw new Error('E2 期望 bends，实际：' + end.cls);
     if (!end.stat.includes('血里的针')) throw new Error('E2 文案缺失：' + end.stat);
     await page.screenshot({ path: path.join(outDir, 'ending-bends.png') });
