@@ -101,6 +101,7 @@ export function makeGlowSprite(color: THREE.ColorRepresentation, scale: number, 
     opacity,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
+    fog: false,
   });
   const s = new THREE.Sprite(mat);
   s.scale.setScalar(scale);

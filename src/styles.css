@@ -1,0 +1,423 @@
+/* DEEP DIVE ·《蓝井》— 黑色电影式 UI */
+:root {
+  --serif: Georgia, 'Times New Roman', 'Songti SC', 'SimSun', serif;
+  --mono: 'Courier New', monospace;
+  --teal: #7ec8b8;
+  --paper: #cfc9b0;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  font-family: var(--serif);
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#app { position: fixed; inset: 0; }
+#app canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+
+/* ---------- 淡入淡出 ---------- */
+#fade {
+  position: fixed; inset: 0;
+  background: #000;
+  opacity: 1;
+  pointer-events: none;
+  z-index: 60;
+}
+
+/* ---------- 标题菜单 ---------- */
+#menu {
+  position: fixed; inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+  background:
+    radial-gradient(ellipse at 50% 120%, rgba(2, 12, 16, 0.25), rgba(0, 0, 0, 0.78) 75%);
+}
+
+.menu-inner {
+  text-align: center;
+  color: var(--paper);
+  padding: 24px;
+  max-width: 520px;
+  width: 100%;
+}
+
+.title-en {
+  font-size: clamp(44px, 9vw, 84px);
+  letter-spacing: 0.42em;
+  margin-right: -0.42em;
+  color: #dfe8e4;
+  text-shadow: 0 0 26px rgba(126, 200, 184, 0.35), 0 2px 12px #000;
+  font-weight: 400;
+}
+
+.title-cn {
+  font-size: clamp(20px, 4vw, 30px);
+  letter-spacing: 0.9em;
+  margin-right: -0.9em;
+  margin-top: 10px;
+  color: #9db8b0;
+}
+
+.tagline {
+  margin-top: 14px;
+  font-size: 13px;
+  letter-spacing: 0.35em;
+  margin-right: -0.35em;
+  color: #6d7f79;
+}
+
+.menu-buttons {
+  margin-top: 44px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+
+.btn {
+  font-family: var(--serif);
+  background: rgba(8, 18, 20, 0.55);
+  color: var(--paper);
+  border: 1px solid rgba(158, 184, 176, 0.35);
+  padding: 12px 26px;
+  min-width: 300px;
+  font-size: 16px;
+  letter-spacing: 0.18em;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  backdrop-filter: blur(3px);
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--teal);
+  color: #eaf4f0;
+  box-shadow: 0 0 18px rgba(126, 200, 184, 0.22);
+  text-shadow: 0 0 8px rgba(126, 200, 184, 0.5);
+}
+
+.btn.primary { border-color: rgba(126, 200, 184, 0.7); }
+
+.btn.locked {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-style: dashed;
+}
+.btn .soon {
+  font-size: 11px;
+  margin-left: 10px;
+  color: #8aa;
+  letter-spacing: 0.1em;
+}
+
+.mode-desc {
+  font-size: 12px;
+  color: #64756f;
+  letter-spacing: 0.2em;
+  margin: -4px 0 6px;
+}
+
+.help-panel {
+  margin-top: 26px;
+  border-top: 1px solid rgba(158, 184, 176, 0.2);
+  padding-top: 18px;
+  font-size: 14px;
+}
+.help-panel.hidden { display: none; }
+.help-grid {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 7px 26px;
+  justify-content: center;
+  color: #a8b8b2;
+}
+.help-grid span:nth-child(odd) { color: #677973; text-align: right; }
+.help-grid span:nth-child(even) { text-align: left; }
+.help-note {
+  margin-top: 16px;
+  color: #7ec8b8;
+  font-style: italic;
+  letter-spacing: 0.25em;
+  font-size: 13px;
+}
+
+.menu-footer {
+  margin-top: 40px;
+  font-size: 11px;
+  color: #45524d;
+  letter-spacing: 0.18em;
+  line-height: 1.9;
+}
+
+/* ---------- 暂停 ---------- */
+#pause {
+  position: fixed; inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 45;
+  background: rgba(0, 0, 0, 0.72);
+}
+.pause-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+}
+.pause-title {
+  color: var(--paper);
+  letter-spacing: 0.5em;
+  margin-right: -0.5em;
+  font-size: 22px;
+  margin-bottom: 18px;
+}
+
+/* ---------- HUD ---------- */
+#hud {
+  position: fixed; inset: 0;
+  pointer-events: none;
+  z-index: 30;
+  color: #cfd8d4;
+}
+
+.o2-box {
+  position: absolute;
+  left: max(18px, env(safe-area-inset-left));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: rgba(2, 8, 10, 0.4);
+  border: 1px solid rgba(158, 184, 176, 0.25);
+  padding: 10px 12px;
+  backdrop-filter: blur(2px);
+}
+.o2-label { font-size: 11px; letter-spacing: 0.2em; color: #8fa79f; }
+.o2-bar {
+  width: 10px; height: 90px;
+  border: 1px solid rgba(158, 184, 176, 0.4);
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+}
+.o2-fill {
+  width: 100%;
+  height: 100%;
+  background: var(--teal);
+  transition: height 0.3s ease, background 0.6s ease;
+}
+.o2-psi { font-family: var(--mono); font-size: 12px; color: #a8beb6; }
+.o2-box.warn { animation: o2pulse 1.1s ease-in-out infinite; }
+@keyframes o2pulse {
+  0%, 100% { border-color: rgba(158, 184, 176, 0.25); }
+  50% { border-color: rgba(210, 70, 60, 0.8); box-shadow: 0 0 14px rgba(210, 60, 50, 0.35); }
+}
+
+.depth-box {
+  position: absolute;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  font-family: var(--mono);
+  font-size: 15px;
+  letter-spacing: 0.15em;
+  color: #8fa79f;
+  background: rgba(2, 8, 10, 0.4);
+  border: 1px solid rgba(158, 184, 176, 0.25);
+  padding: 8px 14px;
+}
+
+.objective {
+  position: absolute;
+  top: max(20px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 14px;
+  letter-spacing: 0.3em;
+  color: #a5bdb4;
+  opacity: 0;
+  transition: opacity 1.2s ease;
+  text-shadow: 0 1px 6px #000;
+}
+.objective.show { opacity: 0.9; }
+
+.subtitle {
+  position: absolute;
+  bottom: 15%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(720px, 86vw);
+  text-align: center;
+  font-size: clamp(15px, 2.4vw, 19px);
+  line-height: 1.8;
+  letter-spacing: 0.12em;
+  color: #d8ddd8;
+  text-shadow: 0 1px 4px #000, 0 0 18px rgba(0, 0, 0, 0.9);
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+.subtitle.show { opacity: 1; }
+.subtitle em {
+  font-style: normal;
+  color: var(--teal);
+}
+.subtitle.mono {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: #93a8a1;
+  letter-spacing: 0.08em;
+}
+.subtitle.creature {
+  color: #a5dced;
+  letter-spacing: 0.34em;
+  text-shadow: 0 0 22px rgba(120, 200, 235, 0.55), 0 1px 4px #000;
+  font-size: clamp(16px, 2.6vw, 21px);
+}
+
+.prompt {
+  position: absolute;
+  top: 58%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 14px;
+  letter-spacing: 0.24em;
+  color: #cfe0da;
+  border: 1px solid rgba(158, 184, 176, 0.4);
+  background: rgba(2, 8, 10, 0.5);
+  padding: 7px 16px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.prompt.show { opacity: 1; }
+
+.reticle {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 3px; height: 3px;
+  margin: -1.5px;
+  border-radius: 50%;
+  background: rgba(210, 225, 220, 0.55);
+}
+
+/* ---------- 介绍卡 ---------- */
+#cards {
+  position: fixed; inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 55;
+  background: #000;
+  cursor: pointer;
+}
+.card-text {
+  color: #c9c4ae;
+  font-size: clamp(17px, 2.8vw, 24px);
+  line-height: 2.3;
+  letter-spacing: 0.22em;
+  text-align: center;
+  max-width: 720px;
+  padding: 0 28px;
+  min-height: 6em;
+}
+.card-text .caret { animation: caret 0.9s steps(1) infinite; color: #7ec8b8; }
+@keyframes caret { 50% { opacity: 0; } }
+.card-hint {
+  position: absolute;
+  bottom: 42px;
+  font-size: 12px;
+  letter-spacing: 0.3em;
+  color: #4c5a55;
+}
+
+/* ---------- 致谢 ---------- */
+#credits {
+  position: fixed; inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  z-index: 58;
+  background: #000;
+}
+.credit-line {
+  color: #b8b2a0;
+  font-size: clamp(15px, 2.4vw, 21px);
+  letter-spacing: 0.4em;
+  opacity: 0;
+  animation: creditIn 2.4s ease forwards;
+}
+.credit-line:first-child {
+  color: #dfe8e4;
+  font-size: clamp(22px, 3.6vw, 32px);
+}
+.credit-back {
+  opacity: 0;
+  animation: creditIn 2s ease forwards;
+  pointer-events: auto;
+}
+@keyframes creditIn { to { opacity: 1; } }
+
+/* ---------- 触控 ---------- */
+.touch-root {
+  position: fixed; inset: 0;
+  pointer-events: none;
+  z-index: 35;
+}
+.joy-base {
+  position: absolute;
+  width: 104px; height: 104px;
+  border-radius: 50%;
+  border: 1px solid rgba(158, 184, 176, 0.5);
+  background: rgba(8, 18, 20, 0.25);
+  opacity: 0.35;
+  left: 8vw;
+  bottom: 12vh;
+}
+.joy-nub {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 44px; height: 44px;
+  margin: -22px;
+  border-radius: 50%;
+  background: rgba(158, 184, 176, 0.45);
+}
+.touch-btn {
+  position: absolute;
+  width: 58px; height: 58px;
+  border-radius: 50%;
+  border: 1px solid rgba(158, 184, 176, 0.5);
+  background: rgba(8, 18, 20, 0.45);
+  color: #cfd8d4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  pointer-events: auto;
+  letter-spacing: 0;
+}
+.t-up { right: 20px; bottom: calc(20vh + 70px); }
+.t-down { right: 20px; bottom: 20vh; }
+.t-lamp { right: 92px; bottom: calc(20vh + 35px); }
+.t-pause {
+  top: max(14px, env(safe-area-inset-top));
+  right: 14px;
+  width: 44px; height: 44px;
+  font-size: 14px;
+}
+.t-interact {
+  right: 24px;
+  bottom: calc(20vh + 150px);
+  width: 66px; height: 66px;
+  border-color: rgba(126, 200, 184, 0.8);
+  font-size: 15px;
+}

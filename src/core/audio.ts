@@ -13,7 +13,6 @@ export class AudioEngine {
   private reverbSend!: GainNode;
 
   private droneGain!: GainNode;
-  private droneOsc2!: OscillatorNode;
   private eerieGain: GainNode | null = null;
   private hissGain: GainNode | null = null;
   private padNodes: AudioNode[] = [];
@@ -33,6 +32,9 @@ export class AudioEngine {
 
   get ready() { return this.ctx !== null; }
   get now() { return this.ctx?.currentTime ?? 0; }
+
+  suspend() { void this.ctx?.suspend(); }
+  resume() { void this.ctx?.resume(); }
 
   /** 必须在用户手势中调用。 */
   ensure() {
@@ -96,7 +98,6 @@ export class AudioEngine {
     const g2 = ctx.createGain();
     g2.gain.value = 0.34;
     o2.connect(g2); g2.connect(this.droneGain);
-    this.droneOsc2 = o2;
 
     const lfo = ctx.createOscillator();
     lfo.frequency.value = 0.05;
@@ -586,7 +587,7 @@ export class AudioEngine {
     return buf;
   }
 
-  private tanhCurve(k: number): Float32Array {
+  private tanhCurve(k: number): Float32Array<ArrayBuffer> {
     const n = 1024;
     const curve = new Float32Array(n);
     for (let i = 0; i < n; i++) {
