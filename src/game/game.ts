@@ -136,7 +136,7 @@ export class Game {
     // 重置后处理与玩家，入水
     const u = this.post.uniforms;
     u.uWhite.value = 0; u.uClose.value = 0; u.uFlash.value = 0; u.uFade.value = 0;
-    u.uGradeDepth.value = 0.4;
+    u.uGradeDepth.value = 0.4; u.uGradeMode.value = 0;
     this.post.applyQuality(this.quality);
 
     this.story.resetPlayer();
@@ -171,7 +171,7 @@ export class Game {
     this.story.dispose();
     const u = this.post.uniforms;
     u.uWhite.value = 0; u.uClose.value = 0; u.uFlash.value = 0; u.uFade.value = 0;
-    u.uGradeDepth.value = 0.4;
+    u.uGradeDepth.value = 0.4; u.uGradeMode.value = 0;
     this.post.applyQuality(this.quality);
     this.hud.setVisible(false);
     this.hud.clearSubtitles();

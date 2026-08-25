@@ -6,7 +6,8 @@
 import * as THREE from 'three';
 import { Simplex3, clamp, lerp } from '../../core/noise';
 import type { QualitySettings } from '../../core/quality';
-import { makeLightCone, makeGlowSprite } from '../../render/volumetric';
+import { makeLightCone, makeGlowSprite, tickCone } from '../../render/volumetric';
+import { makeCaveMaterial, type CaveMaterialHandle } from '../../render/caveMaterial';
 
 export interface CaveSample {
   pos: THREE.Vector3;
@@ -77,6 +78,9 @@ export class CaveSystem {
   private noise: Simplex3;
   private ledMat: THREE.MeshStandardMaterial;
   private danglingLine: THREE.Mesh | null = null;
+  private matHandle!: CaveMaterialHandle;
+  private surfaceMat: THREE.ShaderMaterial | null = null;
+  private entranceCones: THREE.Mesh[] = [];
 
   constructor(quality: QualitySettings, seed = 20260825) {
     this.noise = new Simplex3(seed);
@@ -157,6 +161,7 @@ export class CaveSystem {
     const vertCount = (seg + 1) * (rad + 1);
     const positions = new Float32Array(vertCount * 3);
     const colors = new Float32Array(vertCount * 3);
+    const progress = new Float32Array(vertCount);
     const indices: number[] = [];
     const tmp = new THREE.Vector3();
     const dir = new THREE.Vector3();
@@ -183,6 +188,7 @@ export class CaveSystem {
         positions[vi] = tmp.x;
         positions[vi + 1] = tmp.y;
         positions[vi + 2] = tmp.z;
+        progress[i * (rad + 1) + j] = u;
 
         const n2 = this.noise.noise(tmp.x * 0.31 + 40, tmp.y * 0.31, tmp.z * 0.31);
         const n3 = this.noise.noise(tmp.x * 1.7, tmp.y * 1.7 + 9, tmp.z * 1.7);
@@ -207,18 +213,14 @@ export class CaveSystem {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geo.setAttribute('aU', new THREE.BufferAttribute(progress, 1));
     geo.setIndex(indices);
     geo.computeVertexNormals();
 
-    // 注意：该索引绕序生成的面朝向隧道内部，因此用 FrontSide 渲染内壁
-    const mat = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.92,
-      metalness: 0.04,
-      side: THREE.FrontSide,
-      flatShading: true,
-    });
-    const mesh = new THREE.Mesh(geo, mat);
+    // 注意：该索引绕序生成的面朝向隧道内部，因此用 FrontSide 渲染内壁。
+    // 平滑法线 + 三平面细节法线取代 flatShading：低模轮廓消失，出现湿岩微高光。
+    this.matHandle = makeCaveMaterial(q.caveDetail, q.caveCaustics);
+    const mesh = new THREE.Mesh(geo, this.matHandle.material);
     mesh.frustumCulled = false;
     this.group.add(mesh);
   }
@@ -244,21 +246,57 @@ export class CaveSystem {
     this.group.add(mesh);
 
     // 水面辉光盘
-    const glow = makeGlowSprite(0xbdf3ff, 8, 0.5);
+    const glow = makeGlowSprite(0xbdf3ff, 9, 0.55);
     glow.position.set(0, 9.5, 0);
     this.group.add(glow);
 
-    // 三根下射光柱
-    for (let i = 0; i < 3; i++) {
+    // 从下方仰望的动态水膜（干涉波纹，「慢慢合上的眼睛」）
+    this.surfaceMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      uniforms: { uTime: { value: 0 } },
+      vertexShader: /* glsl */ `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv * 2.0 - 1.0;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform float uTime;
+        varying vec2 vUv;
+        void main() {
+          float r = length(vUv);
+          float rip = sin(r * 16.0 - uTime * 1.35) * 0.5 + 0.5;
+          rip *= sin((vUv.x + vUv.y) * 8.0 + uTime * 0.8) * 0.5 + 0.5;
+          rip += (sin(vUv.x * 21.0 - uTime * 1.7) * sin(vUv.y * 19.0 + uTime * 1.2)) * 0.18;
+          float edge = 1.0 - smoothstep(0.5, 1.0, r);
+          vec3 col = mix(vec3(0.4, 0.82, 0.92), vec3(0.9, 1.0, 1.0), clamp(rip, 0.0, 1.0) * 0.65);
+          float a = edge * (0.3 + 0.7 * clamp(rip, 0.0, 1.0));
+          gl_FragColor = vec4(col * a * 1.3, a);
+        }
+      `,
+    });
+    const surf = new THREE.Mesh(new THREE.CircleGeometry(4.4, 40), this.surfaceMat);
+    surf.rotation.x = Math.PI / 2;
+    surf.position.set(0, 9.3, 0);
+    surf.renderOrder = 24;
+    this.group.add(surf);
+
+    // 四根下射神光柱（泛光管线会给它们镀上光晕）
+    for (let i = 0; i < 4; i++) {
       const cone = makeLightCone({
-        length: 17 + i * 3,
-        radius: 1.6 + i * 1.4,
+        length: 24 + i * 4,
+        radius: 1.4 + i * 1.7,
         color: 0x8fd8f0,
-        intensity: 0.09 - i * 0.025,
+        intensity: 0.11 - i * 0.022,
       });
-      cone.position.set((i - 1) * 1.1, 7.5, (i - 1) * 0.8);
-      cone.rotateX(-Math.PI / 2 + (i - 1) * 0.1);
+      cone.position.set((i - 1.5) * 0.9, 8.5, (i - 1.5) * 0.7);
+      cone.rotateX(-Math.PI / 2 + (i - 1.5) * 0.07);
       this.group.add(cone);
+      this.entranceCones.push(cone);
     }
   }
 
@@ -447,13 +485,24 @@ export class CaveSystem {
     }
   }
 
-  /** LED 呼吸闪烁等。 */
-  update(time: number) {
+  /** 运行时画质热切换。 */
+  applyQuality(q: QualitySettings) {
+    this.matHandle.setQuality(q.caveDetail, q.caveCaustics);
+  }
+
+  /** LED 呼吸闪烁 / 水膜与光柱动画 / 材质 uniform。 */
+  update(time: number, playerPos: THREE.Vector3) {
     const blink = (Math.sin(time * 2.6) > 0.93) ? 1 : 0;
     this.ledMat.emissiveIntensity = blink * 3.2;
     this.computerLight.intensity = blink * 2.4;
     if (this.danglingLine) {
       this.danglingLine.rotation.y = Math.sin(time * 0.5) * 0.05;
     }
+    if (this.surfaceMat) this.surfaceMat.uniforms.uTime.value = time;
+    for (let i = 0; i < this.entranceCones.length; i++) {
+      const breath = 1 + 0.22 * Math.sin(time * 0.4 + i * 1.9);
+      tickCone(this.entranceCones[i], time, (0.11 - i * 0.022) * breath);
+    }
+    this.matHandle.tick(time, playerPos);
   }
 }

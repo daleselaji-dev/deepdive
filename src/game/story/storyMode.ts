@@ -198,10 +198,11 @@ export class StoryMode implements GameMode {
 
   debugScare() { this.beginScare(); }
 
-  /** 运行时可热切换的画质项（粒子数 / 体积光 / 后处理由 PostFX 处理）。 */
+  /** 运行时可热切换的画质项（粒子数 / 体积光 / 洞壁细节；后处理由 PostFX 处理）。 */
   applyQuality(q: import('../../core/quality').QualitySettings) {
     this.silt.points.geometry.setDrawRange(0, q.siltCount);
     if (this.cone) this.cone.visible = q.volumetric;
+    this.cave.applyQuality(q);
   }
 
   /** 菜单闲置镜头。 */
@@ -249,7 +250,7 @@ export class StoryMode implements GameMode {
     this.time += this.idle ? dt * 0.35 : dt;
     const t = this.time;
 
-    this.cave.update(t);
+    this.cave.update(t, this.idle ? this.ctx.camera.position : this.pos);
     this.creature.update(dt, t);
     this.bubbles.update(dt, t);
     if (this.cone) tickCone(this.cone, t);
@@ -665,6 +666,7 @@ export class StoryMode implements GameMode {
     this.ctx.hud.subtitle('……', 2);
     const u = this.ctx.post.uniforms;
     u.uGradeDepth.value = 0.08;
+    u.uGradeMode.value = 1;
     u.uDistort.value = 0;
     window.setTimeout(() => { u.uFade.value = 0.999; }, 100);
   }
