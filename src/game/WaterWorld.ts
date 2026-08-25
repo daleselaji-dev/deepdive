@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { QualityProfile } from './quality';
 import type { Cave } from './Cave';
-import { causticFrames, shaftTexture, skyTexture, sunSprite } from './textures';
+import { causticFrames, particleSprite, shaftTexture, skyTexture, sunSprite } from './textures';
 
 /**
  * 水面与阳光系统（docs/ART_DIRECTION.md §3.5）：
@@ -252,7 +252,7 @@ export class WaterWorld {
     // 光之厅裂隙束
     const crack = cave.crackPoint;
     const beamH = 20;
-    const hb = mkBeam(0.9, 2.6, beamH, 0x8fd8c8, 0.4);
+    const hb = mkBeam(0.9, 2.6, beamH, 0x8fd8c8, 0.5);
     hb.position.set(crack.x, crack.y - beamH / 2 + 1.5, crack.z);
     this.group.add(hb);
     // 裂隙口的冷光源（照亮光之厅中央）
@@ -260,6 +260,21 @@ export class WaterWorld {
     crackLight.position.set(crack.x, crack.y - 4, crack.z);
     cave.zoneLights.push(crackLight);
     this.group.add(crackLight);
+    // 裂隙口光晕：让镂空处读作"燃烧的天窗"而非平面蓝块
+    const glowTex = particleSprite();
+    for (const [scale, op] of [[7, 0.55], [14, 0.22]] as [number, number][]) {
+      const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: glowTex,
+        color: 0xcff2e4,
+        transparent: true,
+        opacity: op,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      }));
+      halo.scale.setScalar(scale);
+      halo.position.set(crack.x, crack.y - 0.6, crack.z);
+      this.group.add(halo);
+    }
 
     // ---------- god-ray 面片（补充层次） ----------
     this.rayMat = new THREE.MeshBasicMaterial({

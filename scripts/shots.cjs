@@ -20,9 +20,10 @@ const SPOTS = [
   ['z1-shaft-side', 'shaft', 0.55, -0.6, 0.4, 900],
   ['z2-gallery', 'gallery', 0.5, -1.1, 0.05, 900],
   ['z3-throat', 'throat', 0.5, -1.4, 0, 900],
-  ['z4-hall-tower', 'hall', 0.45, -1.5, -0.1, 1200],
+  // MARK 型：[名称, 'MARK', [区名, 区内比例], 地标名, y偏移, 等待ms]
+  ['z4-hall-tower', 'MARK', ['hall', 0.16], 'crack', -7, 1400],
   ['z5-halocline', 'halo', 0.5, -1.8, -0.3, 1200],
-  ['z6-wreck', 'wreck', 0.45, -2.1, -0.4, 1200],
+  ['z6-wreck', 'MARK', ['wreck', 0.28], 'wreck', 0.5, 1400],
   ['z6-silt', 'SILT', 0, 0, 0, 2200],
   ['z7-collapse', 'collapse', 0.3, -2.3, 0, 1400],
   ['z8-abyss', 'abyss', 0.45, -2.5, -0.2, 1300],
@@ -32,6 +33,7 @@ const SPOTS = [
   ['sight-gaze', 'SIGHT', 0.47, 0, 0, 1600],
   ['sight-leave', 'SIGHT', 0.8, 0, 0, 1600],
   ['z9-chimney', 'chimney', 0.4, 2.6, 0.75, 900],
+  ['surface-boat', 'SURFACE', 0, 0, 0, 2600],
 ];
 
 async function main() {
@@ -65,6 +67,58 @@ async function main() {
   for (const [name, zone, frac, yaw, pitch, wait] of SPOTS) {
     if (zone === null) {
       await new Promise((r) => setTimeout(r, wait));
+    } else if (zone === 'MARK') {
+      // 跳区后把视线对准命名地标
+      const [z2, f2] = frac;
+      const markName = yaw;
+      const dy = pitch;
+      await page.evaluate(
+        (za, fa, mn, dya) => {
+          const dd = window.__dd;
+          const title = document.getElementById('title');
+          if (title && !title.classList.contains('hidden')) document.getElementById('start').click();
+          dd.zone(za, fa);
+          const m = dd.mark(mn);
+          dd.lookWorld(m[0], m[1] + dya, m[2]);
+          dd.silt(0);
+        },
+        z2, f2, markName, dy,
+      );
+      await new Promise((r) => setTimeout(r, wait));
+      for (let k = 0; k < 3; k++) {
+        const open = await page.evaluate(() => {
+          const s = document.getElementById('slate');
+          if (s && !s.classList.contains('hidden')) {
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'x' }));
+            return true;
+          }
+          return false;
+        });
+        if (!open) break;
+        await new Promise((r) => setTimeout(r, 550));
+      }
+      await page.evaluate(() => window.__dd.silt(0));
+      await new Promise((r) => setTimeout(r, 450));
+    } else if (zone === 'SURFACE') {
+      // 水面英雄镜头：破水 → 看向支援船与晨光
+      await page.evaluate(() => {
+        const dd = window.__dd;
+        dd.phase('return');
+        dd.zone('chimney', 0.9);
+      });
+      await new Promise((r) => setTimeout(r, 600));
+      await page.evaluate(() => {
+        const dd = window.__dd;
+        const b = dd.mark('boat');
+        dd.move(b[0] - 5, -0.1, b[2] - 5);
+      });
+      await new Promise((r) => setTimeout(r, wait));
+      await page.evaluate(() => {
+        const dd = window.__dd;
+        const b = dd.mark('boat');
+        dd.lookWorld(b[0], b[1] + 1.2, b[2]);
+      });
+      await new Promise((r) => setTimeout(r, 400));
     } else if (zone === 'SILT') {
       // 搅浑水验证：手动触发白雾 → 截图 → 立即清除避免污染后续
       await page.evaluate(() => window.__dd.silt(30));

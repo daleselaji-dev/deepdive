@@ -170,10 +170,18 @@ export class Game {
         if (this.phase === 'descent') this.beginSighting();
         this.ancient.skipTo(k);
       },
-      lookAncient: () => {
-        const d = this.ancient.group.position.clone().sub(this.player.camera.position).normalize();
-        this.player.pitch = Math.asin(THREE.MathUtils.clamp(d.y, -1, 1));
-        this.player.yaw = Math.atan2(-d.x, -d.z);
+      lookAncient: () => this.faceWorldPoint(this.ancient.group.position),
+      lookWorld: (x: number, y: number, z: number) => this.faceWorldPoint(new THREE.Vector3(x, y, z)),
+      mark: (name: string): number[] => {
+        const marks: Record<string, THREE.Vector3> = {
+          crack: this.cave.crackPoint,
+          pit: this.cave.pitCenter,
+          pool: this.cave.poolCenter,
+          altar: this.landmarks.altarPos,
+          wreck: this.landmarks.wreckPos,
+          boat: this.water.boatPos,
+        };
+        return (marks[name] ?? this.player.position).toArray();
       },
       boat: () => this.water.boatPos.toArray(),
       silt: (seconds: number) => {
@@ -191,6 +199,13 @@ export class Game {
         zone: this.cave.zoneAt(this.player.mainT),
       }),
     };
+  }
+
+  /** 调试：把视线对准世界点 */
+  private faceWorldPoint(v: THREE.Vector3): void {
+    const d = v.clone().sub(this.player.camera.position).normalize();
+    this.player.pitch = Math.asin(THREE.MathUtils.clamp(d.y, -1, 1));
+    this.player.yaw = Math.atan2(-d.x, -d.z);
   }
 
   private buildParticles(): void {

@@ -15,9 +15,11 @@ export class Landmarks {
   /** 卤水云层（Game 判定穿越） */
   readonly haloPlaneY: number;
   readonly haloCenter = new THREE.Vector3();
-  readonly haloRadius = 24;
+  readonly haloRadius = 15; // 不得泄漏进相邻的光之厅
   /** 祭坛供品（互动发光） */
   readonly altarPos = new THREE.Vector3();
+  /** 沉船中心（取景/调试用） */
+  readonly wreckPos = new THREE.Vector3();
   readonly altarLight: THREE.PointLight;
   private altarGems: THREE.Mesh[] = [];
   private haloMats: THREE.MeshBasicMaterial[] = [];
@@ -111,7 +113,7 @@ export class Landmarks {
       rad *= 0.62;
     }
     // 塔尖被光束击中的亮斑
-    const tipGlow = new THREE.PointLight(0xbfe8da, 26, 16, 1.7);
+    const tipGlow = new THREE.PointLight(0xbfe8da, 42, 18, 1.6);
     tipGlow.position.set(crack.x, y + 0.6, crack.z);
     cave.zoneLights.push(tipGlow);
     tower.add(tipGlow);
@@ -233,6 +235,7 @@ export class Landmarks {
     wreck.position.set(center.x + 2, floorY, center.z + 1.5);
     wreck.rotation.y = Math.atan2(tan.x, tan.z) + 0.5;
     wreck.rotation.z = 0.14;
+    this.wreckPos.set(center.x + 2, floorY + 0.8, center.z + 1.5);
 
     const wood = new THREE.MeshStandardMaterial({
       map: woodTexture(256),
@@ -300,11 +303,16 @@ export class Landmarks {
     wreck.add(lantern);
     this.group.add(wreck);
 
-    // 沉船厅幽绿死水补光
-    const fill = new THREE.PointLight(0x3a5c48, 60, 46, 1.45);
-    fill.position.set(center.x, center.y + 3, center.z);
+    // 沉船厅幽绿死水补光（主光压向船体，让龙骨肋骨的剪影可读）
+    const fill = new THREE.PointLight(0x3a5c48, 120, 52, 1.4);
+    fill.position.set(center.x + 1, center.y + 1.5, center.z + 1);
     cave.zoneLights.push(fill);
     this.group.add(fill);
+    // 船体上方的窄冷光——"墓志"式顶光
+    const top = new THREE.PointLight(0x6a9a8a, 30, 18, 1.7);
+    top.position.set(this.wreckPos.x, this.wreckPos.y + 5, this.wreckPos.z);
+    cave.zoneLights.push(top);
+    this.group.add(top);
   }
 
   // ---------- 支线A 玛雅祭坛壁龛 ----------
