@@ -14,7 +14,6 @@ export class AudioEngine {
   private tension = 0; // 0..1，驱动心跳
   private breathRate = 1;
   private started = false;
-  private redRoomNodes: AudioScheduledSourceNode[] = [];
 
   get ready(): boolean {
     return this.started;
@@ -105,13 +104,16 @@ export class AudioEngine {
   }
 
   /** 逐帧驱动：呼吸节奏、心跳、深度低通 */
-  update(dt: number, state: { oxygen01: number; depth01: number; sprinting: boolean; muffle01?: number }): void {
+  update(
+    dt: number,
+    state: { oxygen01: number; depth01: number; sprinting: boolean; muffle01?: number; above?: boolean },
+  ): void {
     if (!this.started || !this.ctx) return;
     const { oxygen01, depth01, sprinting } = state;
 
-    // 深度越深，高频越被水体吃掉；缺氧时叠加意识模糊低通
+    // 深度越深，高频越被水体吃掉；缺氧时叠加意识模糊低通；出水后完全打开
     const muffle = state.muffle01 ?? 0;
-    const targetCut = Math.max(300, 16000 - depth01 * 9000 - muffle * 15000);
+    const targetCut = state.above ? 20000 : Math.max(300, 16000 - depth01 * 9000 - muffle * 15000);
     this.muffleFilter.frequency.setTargetAtTime(targetCut, this.now(), 0.4);
 
     // 呼吸：氧少/冲刺 → 更急促
@@ -288,31 +290,37 @@ export class AudioEngine {
     sub.stop(t + 1.4);
   }
 
-  /** 红厅：撤走水声，升起温暖失谐嗡鸣（林奇式房间音） */
-  enterRedRoom(): void {
+  /** 破水面：宽频水花 + 空气骤然打开 */
+  breach(): void {
     const ctx = this.ctx;
     if (!ctx) return;
-    this.duckBed(0, 2);
     const t = this.now();
-    [110, 110.9, 164.8, 220.5].forEach((f, i) => {
-      const osc = ctx.createOscillator();
-      osc.type = i < 2 ? 'sine' : 'triangle';
-      osc.frequency.value = f;
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(0.05 - i * 0.008, t + 5);
-      const trem = ctx.createOscillator();
-      trem.frequency.value = 0.18 + i * 0.07;
-      const tg = ctx.createGain();
-      tg.gain.value = 0.02;
-      trem.connect(tg);
-      tg.connect(g.gain);
-      osc.connect(g);
-      g.connect(this.muffleFilter);
-      osc.start(t);
-      trem.start(t);
-      this.redRoomNodes.push(osc, trem);
-    });
+    const splash = ctx.createBufferSource();
+    splash.buffer = this.noiseBuffer(1.2);
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(900, t);
+    bp.frequency.exponentialRampToValueAtTime(3200, t + 0.25);
+    bp.Q.value = 0.8;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.001, t);
+    g.gain.exponentialRampToValueAtTime(0.34, t + 0.06);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 1.1);
+    splash.connect(bp);
+    bp.connect(g);
+    g.connect(this.master); // 不走水下低通
+    splash.start(t);
+    // 低频"离水"顿挫
+    const sub = ctx.createOscillator();
+    sub.frequency.setValueAtTime(90, t);
+    sub.frequency.exponentialRampToValueAtTime(38, t + 0.5);
+    const sg = ctx.createGain();
+    sg.gain.setValueAtTime(0.2, t);
+    sg.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+    sub.connect(sg);
+    sg.connect(this.master);
+    sub.start(t);
+    sub.stop(t + 0.7);
   }
 
   /** 全体收束至无声（结局） */
@@ -327,14 +335,6 @@ export class AudioEngine {
     if (!this.ctx) return;
     this.master.gain.cancelScheduledValues(this.now());
     this.master.gain.setValueAtTime(0.85, this.now());
-    this.redRoomNodes.forEach((n) => {
-      try {
-        n.stop();
-      } catch {
-        /* 已停止 */
-      }
-    });
-    this.redRoomNodes = [];
     this.duckBed(1, 2);
   }
 }

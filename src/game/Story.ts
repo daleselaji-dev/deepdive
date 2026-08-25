@@ -35,7 +35,10 @@ export class Story {
   private tankProps: CaveProp[] = [];
 
   constructor(cave: Cave) {
-    const N = (t: number, run: (ctx: StoryContext) => void): FlowNode => ({ t, fired: false, run });
+    // v2 闭环地图：去程占 t 0..abyssMid，旧触发点按比例重映射（Loop E 将全面重写）
+    const ab = cave.zoneRange('abyss');
+    const scale = ((ab.t0 + ab.t1) / 2) / 0.95;
+    const N = (t0: number, run: (ctx: StoryContext) => void): FlowNode => ({ t: t0 * scale, fired: false, run });
     this.nodes = [
       N(0.028, (c) =>
         c.radio('通话检查。收到请敲两下面镜。……很好。\n水温 24 度，你有 40 分钟。\n找到她——或者找到答案。', 7),
@@ -62,12 +65,21 @@ export class Story {
       [0.84, -1.1, 5],
     ];
     for (const [t, ang, id] of slateDefs) {
-      const prop = cave.addProp('slate', t, ang);
+      const prop = cave.addProp('slate', t * scale, ang);
       this.slateProps.push({ prop, text: SLATE_TEXTS[id] });
     }
 
     // 备用气瓶
-    this.tankProps.push(cave.addProp('tank', 0.44, -2.6), cave.addProp('tank', 0.76, 2.1));
+    this.tankProps.push(
+      cave.addProp('tank', 0.3 * scale, -2.6),
+      cave.addProp('tank', 0.58 * scale, 2.1),
+      cave.addProp('tank', 0.8 * scale, -1.2),
+      cave.addProp('tank', 0.93 * scale, 1.8),
+    );
+  }
+
+  get slatesFound(): number {
+    return this.slateProps.filter((s) => s.prop.taken).length;
   }
 
   /** 拾取时的叙事文案 */

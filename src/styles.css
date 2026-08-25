@@ -200,6 +200,33 @@ body {
 }
 #o2fill.low { background: linear-gradient(to top, rgba(200, 52, 31, 0.95), rgba(200, 52, 31, 0.5)); }
 #o2pct { font-size: 15px; letter-spacing: 0.08em; }
+#n2wrap { margin-top: 12px; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+#n2label { font-size: 9px; letter-spacing: 0.2em; opacity: 0.6; }
+#n2gauge {
+  width: 34px; height: 5px;
+  border: 1px solid rgba(232, 163, 61, 0.35);
+}
+#n2fill {
+  height: 100%; width: 0%;
+  background: rgba(232, 163, 61, 0.6);
+  transition: width 0.6s linear, background 0.8s ease;
+}
+#n2fill.high { background: rgba(200, 52, 31, 0.85); }
+
+/* 减压停留面板 */
+#deco {
+  position: absolute; left: 50%; top: 20%;
+  transform: translateX(-50%);
+  text-align: center;
+  border: 1px solid rgba(232, 163, 61, 0.5);
+  padding: 12px 26px;
+  background: rgba(2, 8, 10, 0.55);
+  transition: opacity 0.5s ease;
+}
+#deco.paused { border-color: rgba(200, 52, 31, 0.75); animation: blink 1.2s steps(1) infinite; }
+#deco-label { font-size: 10px; letter-spacing: 0.3em; opacity: 0.8; }
+#deco-time { font-size: clamp(24px, 4vmin, 38px); font-weight: 300; margin: 4px 0 2px; }
+#deco-hint { font-size: 9px; letter-spacing: 0.2em; opacity: 0.55; }
 #depthwrap {
   position: absolute;
   right: max(20px, env(safe-area-inset-right, 0px));
@@ -319,8 +346,10 @@ body {
   color: rgba(232, 226, 212, 0.35);
   margin-top: 3vh;
 }
-#ending.red #ending-quote { color: #efb9ad; text-shadow: 0 0 34px rgba(200, 52, 31, 0.4); }
-#ending.red { background: radial-gradient(ellipse at 50% 60%, #1c0404 0%, #000 74%); }
+#ending.dawn #ending-quote { color: #f2dfba; text-shadow: 0 0 34px rgba(232, 178, 92, 0.35); }
+#ending.dawn { background: radial-gradient(ellipse at 50% 78%, #22150a 0%, #02070a 72%); }
+#ending.bends #ending-quote { color: #e8c4bb; text-shadow: 0 0 34px rgba(200, 52, 31, 0.3); }
+#ending.bends { background: radial-gradient(ellipse at 50% 60%, #140607 0%, #000 74%); }
 #restart {
   background: transparent;
   border: 1px solid rgba(232, 226, 212, 0.3);

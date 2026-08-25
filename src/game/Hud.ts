@@ -6,7 +6,10 @@ export class Hud {
     hud: document.getElementById('hud')!,
     o2fill: document.getElementById('o2fill')!,
     o2pct: document.getElementById('o2pct')!,
+    n2fill: document.getElementById('n2fill')!,
     depth: document.getElementById('depth')!,
+    deco: document.getElementById('deco')!,
+    decoTime: document.getElementById('deco-time')!,
     subtitle: document.getElementById('subtitle')!,
     slate: document.getElementById('slate')!,
     slateText: document.getElementById('slate-text')!,
@@ -52,6 +55,34 @@ export class Hud {
 
   setDepth(meters: number): void {
     this.el.depth.textContent = Math.abs(meters).toFixed(1);
+  }
+
+  /** 氮饱和条（0..1） */
+  setNitrogen(pct01: number): void {
+    const pct = Math.max(0, Math.min(1, pct01));
+    (this.el.n2fill as HTMLElement).style.width = `${(pct * 100).toFixed(1)}%`;
+    this.el.n2fill.classList.toggle('high', pct > 0.55);
+  }
+
+  /**
+   * 减压停留面板。
+   * @param remainSec 剩余秒数
+   * @param inWindow 是否处于停留深度窗口（-4~-7.5m）
+   */
+  setDeco(remainSec: number, inWindow: boolean): void {
+    if (remainSec <= 0) {
+      this.el.deco.classList.add('hidden');
+      return;
+    }
+    this.el.deco.classList.remove('hidden');
+    this.el.deco.classList.toggle('paused', !inWindow);
+    const m = Math.floor(remainSec / 60);
+    const s = Math.max(0, Math.ceil(remainSec % 60));
+    this.el.decoTime.textContent = `${m}:${String(s === 60 ? 0 : s).padStart(2, '0')}`;
+  }
+
+  hideDeco(): void {
+    this.el.deco.classList.add('hidden');
   }
 
   /** 字幕：who 为空则纯环境描述 */
@@ -113,9 +144,10 @@ export class Hud {
     this.el.fade.classList.toggle('on', on);
   }
 
-  /** 结局画面 */
-  showEnding(kind: 'red' | 'hypoxia', quote: string, stat: string): void {
-    this.el.ending.classList.toggle('red', kind === 'red');
+  /** 结局画面：dawn 破晓 / bends 血里的针 / hypoxia 浅睡 */
+  showEnding(kind: 'dawn' | 'bends' | 'hypoxia', quote: string, stat: string): void {
+    this.el.ending.classList.remove('dawn', 'bends');
+    if (kind !== 'hypoxia') this.el.ending.classList.add(kind);
     this.el.endingQuote.textContent = quote;
     this.el.endingStat.textContent = stat;
     this.el.ending.classList.remove('hidden');
