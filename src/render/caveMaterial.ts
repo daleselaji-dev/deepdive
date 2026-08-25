@@ -185,7 +185,7 @@ export function makeCaveMaterial(detail: boolean, caustics: boolean): CaveMateri
             totalEmissiveRadiance += vec3(0.35, 0.62, 0.7) * ca * cmask * 0.4;
           }
           #endif
-          float gband = smoothstep(0.548, 0.565, vCaveU) * (1.0 - smoothstep(0.655, 0.672, vCaveU));
+          float gband = smoothstep(0.548, 0.565, vCaveU) * (1.0 - smoothstep(0.628, 0.648, vCaveU));
           if (gband > 0.003) {
             float bfilm = smoothstep(0.56, 0.78, caveTriTex(uDetailTex, vWP * 0.32, w).b);
             float d = length(vWP - uPlayerPos);

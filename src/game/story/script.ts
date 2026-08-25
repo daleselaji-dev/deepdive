@@ -18,6 +18,7 @@ export interface ScriptCtx {
   clank(vol?: number, delay?: number): void;
   radio(): void;
   eerie(on: boolean): void;
+  chime(): void;
   flicker(duration: number): void;
   guideLight(on: boolean): void;
   beginScare(): void;
@@ -83,6 +84,18 @@ export const BEATS: Beat[] = [
       c.sub('三下。有节奏的。潜水员用刀敲瓶是在喊：**我在这里**。', 7);
     },
   },
+  {
+    t: 0.37,
+    run: (c) => {
+      c.sub('石柱。一整座教堂的石柱，在黑暗里站了一万年。', 6);
+    },
+  },
+  {
+    t: 0.4,
+    run: (c) => {
+      c.sub('洞顶亮着一小片银色——空气。被石头困住了几百年的空气。', 7);
+    },
+  },
   { t: 0.42, run: (c) => c.tension(0.18) },
   {
     t: 0.46,
@@ -109,17 +122,32 @@ export const BEATS: Beat[] = [
     },
   },
   {
+    t: 0.568,
+    run: (c) => {
+      c.fog(0.075, 0x02100f);
+      c.chime();
+      c.sub('墙在发光。有生命把整条隧道当成了它们的星空。', 7);
+    },
+  },
+  {
     t: 0.6,
+    run: (c) => {
+      c.sub('没有线的水像没有语法的句子。我已经不确定哪边是回去。', 8);
+    },
+  },
+  {
+    t: 0.642,
     run: (c) => {
       c.fog(0.1, 0x010507);
       c.drone(0.4);
       c.ambient(0.03);
       c.eerie(true);
-      c.sub('没有线的水像没有语法的句子。我已经不确定哪边是回去。', 8);
+      c.tension(0.5);
+      c.sub('光在身后退潮。黑暗重新合拢，比之前更暗。', 7);
     },
   },
   {
-    t: 0.64,
+    t: 0.665,
     run: (c) => {
       c.guideLight(true);
       c.tension(0.6);

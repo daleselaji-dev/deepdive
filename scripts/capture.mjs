@@ -44,8 +44,11 @@ try {
   await shot('02_entrance');
 
   await dd('window.__dd.teleport(0.18)'); await wait(2600); await shot('03_throat');
-  await dd('window.__dd.teleport(0.40)'); await wait(2600); await shot('04_bell_chamber');
-  await dd('window.__dd.teleport(0.66)'); await wait(2600); await shot('05_dark_zone');
+  await dd('window.__dd.teleport(0.345)'); await wait(2600); await shot('04_bell_chamber');
+  await dd('window.__dd.teleport(0.405)'); await wait(1200); await shot('04b_fish_scatter');
+  await wait(4200); await shot('04c_shadow_pass');
+  await dd('window.__dd.teleport(0.60)'); await wait(2600); await shot('05_glow_gallery');
+  await dd('window.__dd.teleport(0.68)'); await wait(2600); await shot('05b_dark_zone');
 
   await dd('window.__dd.face()'); await wait(400); await shot('06_scare_face');
   await dd('window.__dd.teleport(0.86)');

@@ -8,6 +8,7 @@ import type { GameContext, GameMode } from '../modes';
 import { CaveSystem, type Interactable } from './cave';
 import { Creature } from './creature';
 import { RedRoom } from './redroom';
+import { Spectacle } from './spectacle';
 import {
   BEATS, CREATURE_LINES, REDROOM_DIALOGUE, REDROOM_FINAL, CREDITS_LINES,
   type ScriptCtx,
@@ -32,6 +33,8 @@ export class StoryMode implements GameMode {
   private redroom: RedRoom | null = null;
   private silt!: Silt;
   private bubbles!: BubblePool;
+  private spectacle!: Spectacle;
+  private shadowLineDone = false;
 
   private phase: Phase = 'explore';
   private idle = true;
@@ -105,6 +108,9 @@ export class StoryMode implements GameMode {
 
     this.cave = new CaveSystem(q);
     this.scene.add(this.cave.group);
+
+    this.spectacle = new Spectacle(this.cave, q);
+    this.scene.add(this.spectacle.group);
 
     this.ambientLight = new THREE.AmbientLight(0x2b4a52, 0.4);
     this.scene.add(this.ambientLight);
@@ -203,6 +209,7 @@ export class StoryMode implements GameMode {
     this.silt.points.geometry.setDrawRange(0, q.siltCount);
     if (this.cone) this.cone.visible = q.volumetric;
     this.cave.applyQuality(q);
+    this.spectacle.applyQuality(q);
   }
 
   /** 菜单闲置镜头。 */
@@ -239,6 +246,7 @@ export class StoryMode implements GameMode {
     clank: (v = 0.5, d = 0) => this.ctx.audio.clank(v, d),
     radio: () => this.ctx.audio.radioCrackle(2),
     eerie: (on) => this.ctx.audio.eerie(on),
+    chime: () => this.ctx.audio.chime(),
     flicker: (dur) => { this.flickerLeft = dur; },
     guideLight: (on) => { this.guideAlive = on; },
     beginScare: () => this.beginScare(),
@@ -250,10 +258,27 @@ export class StoryMode implements GameMode {
     this.time += this.idle ? dt * 0.35 : dt;
     const t = this.time;
 
-    this.cave.update(t, this.idle ? this.ctx.camera.position : this.pos);
+    const focus = this.idle ? this.ctx.camera.position : this.pos;
+    this.cave.update(t, focus);
     this.creature.update(dt, t);
     this.bubbles.update(dt, t);
     if (this.cone) tickCone(this.cone, t);
+
+    // 奇观：鱼群风暴（惊奇瞬间 ①）与巨影掠过
+    const scattered = this.spectacle.update(dt, t, focus);
+    if (!this.idle && this.phase === 'explore') {
+      if (scattered) {
+        this.ctx.audio.swell(2.2);
+        this.ctx.audio.setTension(0.32);
+        this.ctx.hud.subtitle('鱼群炸开——像一把银币撒进黑暗。', 5);
+      }
+      if (!this.shadowLineDone && this.spectacle.shadowVisible) {
+        this.shadowLineDone = true;
+        this.ctx.audio.setTension(0.45);
+        this.ctx.audio.knock(1, 0.22);
+        this.ctx.hud.subtitle('……有什么东西从穹顶上过去了。很大，很慢，没有声音。', 7);
+      }
+    }
 
     if (this.idle) { this.updateIdleCam(dt, t); this.updateEnv(dt, t); return; }
 

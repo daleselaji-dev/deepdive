@@ -452,6 +452,37 @@ export class AudioEngine {
     }
   }
 
+  /** 柔和玻璃钟簇（发现物 / 奇观提示）。 */
+  chime(vol = 0.09, count = 3) {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const notes = [523.25, 659.25, 783.99, 1046.5];
+    for (let i = 0; i < count; i++) {
+      const t0 = ctx.currentTime + i * (0.22 + Math.random() * 0.12);
+      const f = notes[Math.floor(Math.random() * notes.length)] * (1 + (Math.random() - 0.5) * 0.012);
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = f;
+      const o2 = ctx.createOscillator();
+      o2.type = 'sine';
+      o2.frequency.value = f * 2.76;
+      const g2 = ctx.createGain();
+      g2.gain.value = 0.22;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(vol, t0 + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.9);
+      o.connect(g);
+      o2.connect(g2); g2.connect(g);
+      g.connect(this.reverbSend);
+      const dry = ctx.createGain();
+      dry.gain.value = 0.35;
+      g.connect(dry); dry.connect(this.bus);
+      o.start(t0); o.stop(t0 + 2.1);
+      o2.start(t0); o2.stop(t0 + 2.1);
+    }
+  }
+
   uiClick() {
     if (!this.ctx) return;
     const ctx = this.ctx;

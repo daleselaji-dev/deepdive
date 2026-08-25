@@ -84,15 +84,20 @@ export class RedRoom {
   readonly figurePos = new THREE.Vector3(0, 0, -9);
   private curtainMats: THREE.ShaderMaterial[] = [];
   private head: THREE.Group;
+  private figureMirror: THREE.Group;
   private turnAmount = 0;
   private turnTarget = 0;
   private spot: THREE.SpotLight;
+  private chandelier: THREE.Group;
+  private chandelierLight: THREE.PointLight;
+  private chandelierMat: THREE.MeshStandardMaterial;
+  private rippleMat: THREE.ShaderMaterial;
 
   constructor() {
     this.scene.fog = new THREE.FogExp2(0x0a0002, 0.052);
     this.scene.background = new THREE.Color(0x0a0002);
 
-    // 帷幔环（正立 + 镜像）
+    // 帷幔环（正立 + 镜像 + 内层视差残幕）
     const R = 13, PANELS = 26;
     for (const mirror of [false, true]) {
       const dim = mirror ? 0.32 : 1;
@@ -111,16 +116,32 @@ export class RedRoom {
         this.scene.add(mesh);
       }
     }
+    // 内层残幕：不完整的一圈，制造双层视差与「后台」的错觉
+    {
+      const mat = curtainMaterial(0.55);
+      for (let i = 0; i < 9; i++) {
+        const a = (i / 9) * Math.PI * 2 + 0.31;
+        if (i % 3 === 1) continue; // 留缺口
+        const geo = new THREE.PlaneGeometry(3.1, 7.2, 20, 4);
+        const mesh = new THREE.Mesh(geo, mat.clone());
+        (mesh.material as THREE.ShaderMaterial).uniforms.uPhase.value = i * 2.61 + 40.0;
+        this.curtainMats.push(mesh.material as THREE.ShaderMaterial);
+        mesh.position.set(Math.sin(a) * 11.1, 3.6, Math.cos(a) * 11.1);
+        mesh.lookAt(0, mesh.position.y, 0);
+        mesh.renderOrder = 3;
+        this.scene.add(mesh);
+      }
+    }
 
-    // 之字形地板（半透明 → 显露镜像）
+    // 之字形地板（半透明镜面 → 显露镜像世界）
     const floor = new THREE.Mesh(
       new THREE.CircleGeometry(14, 48),
       new THREE.MeshStandardMaterial({
         map: chevronTexture(),
-        roughness: 0.36,
-        metalness: 0.05,
+        roughness: 0.18,
+        metalness: 0.35,
         transparent: true,
-        opacity: 0.9,
+        opacity: 0.88,
       })
     );
     floor.rotation.x = -Math.PI / 2;
@@ -134,15 +155,75 @@ export class RedRoom {
     this.scene.add(this.spot, this.spot.target);
     this.scene.add(new THREE.AmbientLight(0x3d0208, 4.5));
 
-    // 身影脚下的镜像辉光
+    // 环形吊灯：缓慢旋转的金色圆环（超现实的「剧场」感）
+    this.chandelier = new THREE.Group();
+    this.chandelierMat = new THREE.MeshStandardMaterial({
+      color: 0x2a1a08, roughness: 0.4, metalness: 0.8,
+      emissive: 0xffca7a, emissiveIntensity: 1.6,
+    });
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(2.3, 0.055, 10, 64), this.chandelierMat);
+    ring.rotation.x = Math.PI / 2;
+    this.chandelier.add(ring);
+    const ring2 = new THREE.Mesh(new THREE.TorusGeometry(1.4, 0.04, 10, 48), this.chandelierMat);
+    ring2.rotation.x = Math.PI / 2;
+    ring2.position.y = -0.7;
+    this.chandelier.add(ring2);
+    this.chandelier.position.set(this.figurePos.x, 8.6, this.figurePos.z);
+    this.scene.add(this.chandelier);
+    this.chandelierLight = new THREE.PointLight(0xffd9a8, 30, 26, 1.8);
+    this.chandelierLight.position.set(this.figurePos.x, 8, this.figurePos.z);
+    this.scene.add(this.chandelierLight);
+
+    // 身影脚下的镜像辉光 + 涟漪（地板在他脚下是「水」）
     const gl = makeGlowSprite(0xff4a4a, 3.2, 0.16);
     gl.position.set(this.figurePos.x, 0.05, this.figurePos.z);
     this.scene.add(gl);
+    this.rippleMat = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      uniforms: { uTime: { value: 0 } },
+      vertexShader: /* glsl */ `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv * 2.0 - 1.0;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform float uTime;
+        varying vec2 vUv;
+        void main() {
+          float r = length(vUv);
+          float ring = sin(r * 21.0 - uTime * 1.5) * 0.5 + 0.5;
+          float a = pow(ring, 3.0) * (1.0 - smoothstep(0.55, 1.0, r)) * smoothstep(0.04, 0.22, r) * 0.28;
+          gl_FragColor = vec4(vec3(1.0, 0.3, 0.32) * a, a);
+        }
+      `,
+    });
+    const ripple = new THREE.Mesh(new THREE.CircleGeometry(2.8, 40), this.rippleMat);
+    ripple.rotation.x = -Math.PI / 2;
+    ripple.position.set(this.figurePos.x, 0.02, this.figurePos.z);
+    ripple.renderOrder = 4;
+    this.scene.add(ripple);
 
     this.head = this.buildFigure();
     this.figure.position.copy(this.figurePos);
     this.figure.rotation.y = Math.PI; // 背对入口（入口在 +z）
     this.scene.add(this.figure);
+
+    // 地板之下的镜像身影（半透明的「另一个他」，每帧跟随本体旋转）
+    const mirrorMat = new THREE.MeshStandardMaterial({
+      color: 0x180a0c, roughness: 0.5, metalness: 0.3,
+      transparent: true, opacity: 0.4,
+    });
+    this.figureMirror = this.figure.clone(true);
+    this.figureMirror.traverse((o) => {
+      if (o instanceof THREE.Mesh) {
+        o.material = mirrorMat;
+        o.renderOrder = 1;
+      }
+    });
+    this.figureMirror.scale.y = -1;
+    this.scene.add(this.figureMirror);
   }
 
   private buildFigure(): THREE.Group {
@@ -190,13 +271,20 @@ export class RedRoom {
 
   dimLights(x: number) {
     this.spot.intensity = 1700 * x;
+    this.chandelierLight.intensity = 30 * x;
+    this.chandelierMat.emissiveIntensity = 1.6 * x;
   }
 
   update(dt: number, time: number) {
     for (const m of this.curtainMats) m.uniforms.uTime.value = time;
+    this.rippleMat.uniforms.uTime.value = time;
     this.turnAmount += (this.turnTarget - this.turnAmount) * Math.min(1, dt * 0.8);
     this.figure.rotation.y = Math.PI * (1 - this.turnAmount);
     this.head.rotation.y = Math.sin(time * 0.4) * 0.04;
     this.figure.position.y = Math.sin(time * 0.7) * 0.012;
+    this.figureMirror.rotation.y = this.figure.rotation.y;
+    this.figureMirror.position.y = -this.figure.position.y;
+    this.chandelier.rotation.y = time * 0.12;
+    this.chandelier.position.y = 8.6 + Math.sin(time * 0.5) * 0.06;
   }
 }
