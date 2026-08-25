@@ -1,5 +1,6 @@
 import './styles.css';
 import { Game } from './game/Game';
+import { SIM_SPECS } from './game/Sim';
 
 function showBootError(err: unknown) {
   const msg = err instanceof Error ? err.message : String(err);
@@ -33,6 +34,39 @@ try {
     }
   });
   document.getElementById('restart')!.addEventListener('click', () => game.restart());
+
+  // ---------- 洞潜安全模拟：选择/复盘接线 ----------
+  const simselect = document.getElementById('simselect')!;
+  const simlist = document.getElementById('simlist')!;
+  for (const spec of SIM_SPECS) {
+    const btn = document.createElement('button');
+    btn.className = 'simitem';
+    btn.type = 'button';
+    btn.innerHTML = `<div class="sim-code">${spec.code}</div>` +
+      `<div class="sim-title">${spec.title}</div>` +
+      `<div class="sim-goal">${spec.goal}</div>`;
+    btn.addEventListener('click', () => {
+      simselect.classList.add('hidden');
+      game.startSim(spec.id);
+    });
+    simlist.appendChild(btn);
+  }
+  document.getElementById('simmode')!.addEventListener('click', () => simselect.classList.remove('hidden'));
+  document.getElementById('simback')!.addEventListener('click', () => simselect.classList.add('hidden'));
+  document.getElementById('debrief-retry')!.addEventListener('click', () => {
+    sessionStorage.setItem('dd-sim-auto', String(game.currentSimId));
+    location.reload();
+  });
+  document.getElementById('debrief-menu')!.addEventListener('click', () => {
+    sessionStorage.removeItem('dd-sim-auto');
+    location.reload();
+  });
+  // 复盘「再来一次」→ 刷新后自动进入同一场景
+  const auto = sessionStorage.getItem('dd-sim-auto');
+  if (auto !== null) {
+    sessionStorage.removeItem('dd-sim-auto');
+    window.setTimeout(() => game.startSim(Number(auto)), 600);
+  }
 } catch (e) {
   showBootError(e);
 }

@@ -10,9 +10,16 @@ export class Hud {
     depth: document.getElementById('depth')!,
     deco: document.getElementById('deco')!,
     decoTime: document.getElementById('deco-time')!,
+    decoLabel: document.getElementById('deco-label')!,
+    decoHint: document.getElementById('deco-hint')!,
     subtitle: document.getElementById('subtitle')!,
     slate: document.getElementById('slate')!,
     slateText: document.getElementById('slate-text')!,
+    slateHead: document.getElementById('slate-head')!,
+    debrief: document.getElementById('debrief')!,
+    debriefTag: document.getElementById('debrief-tag')!,
+    debriefTitle: document.getElementById('debrief-title')!,
+    debriefBody: document.getElementById('debrief-body')!,
     guide: document.getElementById('guide')!,
     guideArrow: document.getElementById('guide-arrow')!,
     guideLabel: document.getElementById('guide-label')!,
@@ -74,13 +81,17 @@ export class Hud {
   /**
    * 减压停留面板。
    * @param remainSec 剩余秒数
-   * @param inWindow 是否处于停留深度窗口（-4~-7.5m）
+   * @param inWindow 是否处于停留深度窗口
+   * @param label 面板标题（模拟模式的多段停留会改写）
+   * @param hint 深度带提示
    */
-  setDeco(remainSec: number, inWindow: boolean): void {
+  setDeco(remainSec: number, inWindow: boolean, label?: string, hint?: string): void {
     if (remainSec <= 0) {
       this.el.deco.classList.add('hidden');
       return;
     }
+    if (label) this.el.decoLabel.textContent = label;
+    if (hint) this.el.decoHint.textContent = hint;
     this.el.deco.classList.remove('hidden');
     this.el.deco.classList.toggle('paused', !inWindow);
     const m = Math.floor(remainSec / 60);
@@ -154,9 +165,11 @@ export class Hud {
     }, holdSec * 1000);
   }
 
-  /** 写字板全屏呈现，点击/按键关闭后 resolve */
-  showSlate(text: string): Promise<void> {
+  /** 写字板全屏呈现，点击/按键关闭后 resolve；head 可改写面板标题（模拟简报共用） */
+  showSlate(text: string, head?: string): Promise<void> {
     this.el.slateText.textContent = text;
+    if (head) this.el.slateHead.textContent = head;
+    else this.el.slateHead.textContent = '潜水写字板 · 回收物证';
     this.el.slate.classList.remove('hidden');
     return new Promise((res) => {
       // 延迟接受关闭，避免触发的同一次点击立刻关掉
@@ -188,6 +201,16 @@ export class Hud {
     this.el.fade.classList.toggle('red', !!opts.red);
     this.el.fade.classList.toggle('fast', !!opts.fast);
     this.el.fade.classList.toggle('on', on);
+  }
+
+  /** 模拟复盘面板（PASS/FAIL + 教学复盘文本） */
+  showDebrief(pass: boolean, code: string, headline: string, body: string): void {
+    this.el.debriefTag.textContent = pass ? '通过 · PASS' : '未通过 · REVIEW';
+    this.el.debrief.classList.toggle('pass', pass);
+    this.el.debrief.classList.toggle('failed', !pass);
+    this.el.debriefTitle.textContent = `${code} · ${headline}`;
+    this.el.debriefBody.textContent = body;
+    this.el.debrief.classList.remove('hidden');
   }
 
   /** 结局画面：dawn 破晓 / bends 血里的针 / hypoxia 浅睡 */

@@ -31,6 +31,7 @@
           <em>开始下潜</em>
           <small>建议戴上耳机 · 桌面 WASD+鼠标 / 手机 双摇杆</small>
         </button>
+        <button id="simmode" type="button">洞潜安全模拟 · 5 项训练</button>
       </div>
       <div class="title-foot">
         <span>寂静天坑事件 · 第一章</span>
@@ -78,6 +79,29 @@
         <div id="slate-head">潜水写字板 · 回收物证</div>
         <div id="slate-text"></div>
         <div id="slate-foot">按任意处继续</div>
+      </div>
+    </section>
+
+    <!-- 洞潜安全模拟：场景选择 -->
+    <section id="simselect" class="hidden" aria-label="洞潜安全模拟">
+      <div id="simselect-card">
+        <div id="simselect-head">洞潜安全模拟 · CAVE SAFETY DRILLS</div>
+        <p id="simselect-note">五项训练取材于公开洞潜安全教育文献中的<b>事故类型分类</b>，内容全部虚构，不使用真实人名、不影射任何一起真实事故。<br />向洞潜安全教育社区致敬。</p>
+        <div id="simlist"></div>
+        <button id="simback" type="button">返回</button>
+      </div>
+    </section>
+
+    <!-- 模拟复盘 -->
+    <section id="debrief" class="hidden">
+      <div id="debrief-card">
+        <div id="debrief-tag">通过 · PASS</div>
+        <div id="debrief-title"></div>
+        <div id="debrief-body"></div>
+        <div id="debrief-actions">
+          <button id="debrief-retry" type="button">再来一次</button>
+          <button id="debrief-menu" type="button">返回标题</button>
+        </div>
       </div>
     </section>
 

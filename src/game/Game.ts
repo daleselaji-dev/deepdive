@@ -14,6 +14,7 @@ import { Hud } from './Hud';
 import { Story, type StoryContext } from './Story';
 import { Scare } from './Scare';
 import { Buddy, type BuddyGesture } from './Buddy';
+import { SimDirector, SIM_SPECS } from './Sim';
 
 type GameState = 'title' | 'play' | 'hypoxia' | 'ended';
 /** play 内部阶段：下潜 → 目击 → 回程 → 水面 → 登船 */
@@ -68,6 +69,12 @@ export class Game {
 
   private state: GameState = 'title';
   private phase: Phase = 'descent';
+  /** story 主线 / sim 安全模拟 */
+  private mode: 'story' | 'sim' = 'story';
+  private sim!: SimDirector;
+  private simDrain = 1;
+  /** 当前模拟场景 id（复盘重试用） */
+  currentSimId = -1;
   private clock = new THREE.Clock();
   private time = 0;
 
@@ -153,6 +160,16 @@ export class Game {
     this.scare = new Scare(this.scene);
     this.buddy = new Buddy(this.scene);
     this.buildBuddyBeats();
+    this.sim = new SimDirector(this.cave, this.player, this.buddy, this.hud, this.audio, this.scene, {
+      time: () => this.time,
+      o2: () => this.oxygen,
+      setO2: (v) => { this.oxygen = Math.max(0, Math.min(100, v)); },
+      n2: () => this.nitrogen,
+      setN2: (v) => { this.nitrogen = Math.max(0, Math.min(100, v)); },
+      setDrain: (m) => { this.simDrain = m; },
+      silt: (s) => { this.siltUntil = this.time + s; },
+      end: (pass, headline, body) => this.endSim(pass, headline, body),
+    });
 
     this.buildParticles();
 
@@ -236,6 +253,12 @@ export class Game {
       }),
       buddyGesture: (k: BuddyGesture) => this.buddy.gesture(k),
       relics: () => `${this.story.relicsSeen}/${this.story.relicTotal}`,
+      sim: (id: number) => this.startSim(id),
+      simState: () => this.sim.debugState(),
+      simScale: (k: number) => { this.sim.debugScale = Math.max(1, k); },
+      dismissSlate: () => {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }));
+      },
     };
   }
 
@@ -291,8 +314,8 @@ export class Game {
 
   /** 潜伴每帧逻辑：节拍触发、气检对视回应、隧道约束、减压带汇合 */
   private updateBuddy(dt: number): void {
-    // 护送段节拍
-    if (this.phase === 'descent' && this.player.pathId === 0) {
+    // 护送段节拍（故事模式专属；模拟模式的潜伴由 SimDirector 指挥）
+    if (this.mode === 'story' && this.phase === 'descent' && this.player.pathId === 0) {
       for (const n of this.buddyNodes) {
         if (!n.fired && this.player.mainT >= n.t) {
           n.fired = true;
@@ -444,6 +467,36 @@ export class Game {
     location.reload();
   }
 
+  /** 洞潜安全模拟：进入指定训练场景 */
+  startSim(id: number): void {
+    if (this.state !== 'title') return;
+    this.audio.init();
+    this.hud.hideTitle();
+    this.hud.showHud();
+    this.input.enable();
+    this.input.requestPointerLock();
+    this.player.lightOn(40);
+    this.state = 'play';
+    this.phase = 'descent';
+    this.mode = 'sim';
+    this.currentSimId = id;
+    this.startedAt = this.time;
+    this.envSnap = true;
+    this.sim.start(id);
+  }
+
+  /** 模拟结束：冻结输入，弹出教学复盘 */
+  private endSim(pass: boolean, headline: string, body: string): void {
+    this.state = 'ended';
+    this.input.disable();
+    this.hud.hideDeco();
+    this.hud.setGuide(null);
+    this.hud.clearSubtitle();
+    this.audio.duckBed(0.25, 2);
+    this.hud.showDebrief(pass, SIM_SPECS[this.currentSimId].code, headline, body);
+    document.exitPointerLock?.();
+  }
+
   // ---------- 叙事上下文 ----------
   private storyCtx: StoryContext = {
     radio: (text, hold = 6) => {
@@ -549,7 +602,7 @@ export class Game {
   }
 
   private playFrame(dt: number): void {
-    while (this.introQueue.length && this.time >= this.introQueue[0].at) {
+    while (this.mode === 'story' && this.introQueue.length && this.time >= this.introQueue[0].at) {
       const s = this.introQueue.shift()!;
       this.hud.subtitle(s.text, s.who, s.hold);
     }
@@ -566,7 +619,8 @@ export class Game {
 
     // ---- 氧气 ----
     if (!reading && this.phase !== 'surface' && this.phase !== 'boarding') {
-      const drain = O2_DRAIN * (this.input.sprint && speed > 0.5 ? SPRINT_MULT : 1);
+      const drain = O2_DRAIN * (this.mode === 'sim' ? this.simDrain : 1) *
+        (this.input.sprint && speed > 0.5 ? SPRINT_MULT : 1);
       this.oxygen = Math.max(0, this.oxygen - drain * dt);
     }
     const depth = this.player.depth;
@@ -579,11 +633,12 @@ export class Game {
     else if (depth < 10) this.nitrogen = Math.max(0, this.nitrogen - 0.9 * dt);
     this.hud.setNitrogen(this.nitrogen / 100);
 
-    // ---- 上升速率监控（气泡比你慢——潜水员铁律） ----
+    // ---- 上升速率监控（气泡比你慢——潜水员铁律；SIM-05 有自己的版本） ----
     const rawRate = dt > 0 ? (this.prevDepth - depth) / dt : 0;
     this.prevDepth = depth;
     this.ascentRate += (rawRate - this.ascentRate) * Math.min(1, dt * 3);
     if (
+      this.mode === 'story' &&
       this.ascentRate > 2.3 && depth > 8 && this.nitrogen > 30 &&
       this.time - this.ascentWarnAt > 10
     ) {
@@ -594,18 +649,19 @@ export class Game {
     }
 
     // ---- 气量三分法警报 ----
-    if (!this.o2Warn50 && this.oxygen < 50 && this.phase === 'descent') {
+    if (this.mode === 'story' && !this.o2Warn50 && this.oxygen < 50 && this.phase === 'descent') {
       this.o2Warn50 = true;
       this.storyCtx.radio('气压表过半了。按三分法你现在就该回头。\n……继续。备用瓶都在线上，我给你标了位置。', 7.5);
     }
-    if (!this.o2Warn25 && this.oxygen < 25) {
+    if (this.mode === 'story' && !this.o2Warn25 && this.oxygen < 25) {
       this.o2Warn25 = true;
       this.tension = Math.max(this.tension, 0.55);
       this.hud.subtitle('气压表指针进入红区。\n每一口都开始有了重量。', '', 6);
     }
 
-    // ---- 阶段推进 ----
-    this.updatePhase(dt);
+    // ---- 阶段推进（故事）/ 场景导演（模拟） ----
+    if (this.mode === 'story') this.updatePhase(dt);
+    else this.sim.update(dt);
 
     // ---- 潜伴与分区横幅 ----
     this.updateBuddy(dt);
@@ -637,7 +693,7 @@ export class Game {
       }
     }
 
-    if (this.phase === 'descent' || this.phase === 'return') {
+    if (this.mode === 'story' && (this.phase === 'descent' || this.phase === 'return')) {
       this.story.update(this.player.mainT, this.player.position, this.storyCtx);
     }
     this.updateParticles(dt, this.player.position);
@@ -649,8 +705,8 @@ export class Game {
       above: this.phase === 'surface' || this.phase === 'boarding',
     });
 
-    // ---- 缺氧结局 ----
-    if (this.oxygen <= 0 && this.phase !== 'surface' && this.phase !== 'boarding') {
+    // ---- 缺氧结局（模拟模式由 SimDirector 的安全网接管） ----
+    if (this.mode === 'story' && this.oxygen <= 0 && this.phase !== 'surface' && this.phase !== 'boarding') {
       this.enterHypoxia();
     }
   }
@@ -720,6 +776,11 @@ export class Game {
   private updateGuide(): void {
     const p = this.player;
     if (this.phase === 'boarding') {
+      this.hud.setGuide(null);
+      return;
+    }
+    // 模拟场景可关闭罗盘（错箭头/失散：决策必须自己做）
+    if (this.mode === 'sim' && !this.sim.wantGuide()) {
       this.hud.setGuide(null);
       return;
     }
