@@ -41,11 +41,11 @@ function fbmGrid(w: number, h: number, octaves = 5, baseFreq = 5): Float32Array 
 
 export interface RockMaps {
   map: THREE.Texture;
-  bumpMap: THREE.Texture;
+  normalMap: THREE.Texture;
   roughnessMap: THREE.Texture;
 }
 
-/** 岩壁三贴图：反照率（层理+裂隙）+ 凹凸 + 粗糙度 */
+/** 岩壁三贴图：反照率（层理+裂隙）+ 法线（Sobel 推导） + 粗糙度（湿岩水痕） */
 export function rockMaps(size = 512): RockMaps {
   const macro = fbmGrid(size, size, 5, 5);
   const micro = fbmGrid(size, size, 4, 22);
@@ -69,51 +69,109 @@ export function rockMaps(size = 512): RockMaps {
     ctxA.fillStyle = i % 2 ? '#0c1a1c' : '#3d4a46';
     ctxA.fillRect(0, y, size, 1.5 + rand2(i, 11) * 5);
   }
-  // 裂隙
-  ctxA.globalAlpha = 0.32;
-  ctxA.strokeStyle = '#050b0c';
-  for (let i = 0; i < 30; i++) {
-    ctxA.lineWidth = 0.6 + rand2(i, 3) * 1.6;
-    ctxA.beginPath();
+  // 裂隙：主干宽→末梢细 + 分叉 + 暗晕（等宽折线在近景会读成「铅笔涂鸦」）
+  const px = size / 512;
+  for (let i = 0; i < 26; i++) {
     let x = rand2(i, 5) * size, y = rand2(i, 9) * size;
-    ctxA.moveTo(x, y);
-    for (let s = 0; s < 7; s++) {
-      x += (rand2(i, s * 2) - 0.5) * 90;
-      y += rand2(i, s * 2 + 1) * 55;
-      ctxA.lineTo(x, y);
+    let dirA = rand2(i, 4) * Math.PI * 2;
+    const steps = 9;
+    const w0 = (1.7 + rand2(i, 3) * 2.2) * px;
+    for (let s = 0; s < steps; s++) {
+      const k = s / steps;
+      dirA += (rand2(i, s * 2) - 0.5) * 1.3;
+      const len = (13 + rand2(i, s * 2 + 1) * 24) * px;
+      const nx = x + Math.cos(dirA) * len;
+      const ny = y + Math.sin(dirA) * len;
+      const w = Math.max(0.5, w0 * (1 - k * 0.85));
+      ctxA.globalAlpha = 0.1 * (1 - k);
+      ctxA.lineWidth = w * 3.5;
+      ctxA.strokeStyle = '#0a1416';
+      ctxA.beginPath(); ctxA.moveTo(x, y); ctxA.lineTo(nx, ny); ctxA.stroke();
+      ctxA.globalAlpha = 0.32 * (1 - k * 0.5);
+      ctxA.lineWidth = w;
+      ctxA.strokeStyle = '#050b0c';
+      ctxA.beginPath(); ctxA.moveTo(x, y); ctxA.lineTo(nx, ny); ctxA.stroke();
+      if (s === 3 || s === 6) {
+        const bA = dirA + (rand2(i, s + 40) > 0.5 ? 0.9 : -0.9);
+        ctxA.globalAlpha = 0.22;
+        ctxA.lineWidth = w * 0.6;
+        ctxA.beginPath();
+        ctxA.moveTo(nx, ny);
+        ctxA.lineTo(nx + Math.cos(bA) * len * 0.7, ny + Math.sin(bA) * len * 0.7);
+        ctxA.stroke();
+      }
+      x = nx; y = ny;
     }
-    ctxA.stroke();
   }
   ctxA.globalAlpha = 1;
   const map = new THREE.CanvasTexture(ca);
   map.wrapS = map.wrapT = THREE.RepeatWrapping;
   map.colorSpace = THREE.SRGBColorSpace;
 
-  // ---- 凹凸（高频微噪 + 宏观起伏）----
-  const [cb, ctxB] = canvas(size, size);
-  const imgB = ctxB.createImageData(size, size);
-  for (let i = 0; i < size * size; i++) {
-    const v = Math.max(0, Math.min(255, (macro[i] * 0.45 + micro[i] * 0.55) * 255));
-    imgB.data[i * 4] = imgB.data[i * 4 + 1] = imgB.data[i * 4 + 2] = v;
-    imgB.data[i * 4 + 3] = 255;
+  // ---- 法线（从高度场 Sobel 推导——比 bump 更锐利的光照细节）----
+  const heightAt = (x: number, y: number): number => {
+    const xi = ((x % size) + size) % size;
+    const yi = ((y % size) + size) % size;
+    const i = yi * size + xi;
+    return macro[i] * 0.45 + micro[i] * 0.55;
+  };
+  const [cn, ctxN] = canvas(size, size);
+  const imgN = ctxN.createImageData(size, size);
+  const strength = 2.6;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = (heightAt(x - 1, y) - heightAt(x + 1, y)) * strength;
+      const dy = (heightAt(x, y - 1) - heightAt(x, y + 1)) * strength;
+      const inv = 1 / Math.sqrt(dx * dx + dy * dy + 1);
+      const i = (y * size + x) * 4;
+      imgN.data[i] = (dx * inv * 0.5 + 0.5) * 255;
+      imgN.data[i + 1] = (dy * inv * 0.5 + 0.5) * 255;
+      imgN.data[i + 2] = (inv * 0.5 + 0.5) * 255;
+      imgN.data[i + 3] = 255;
+    }
   }
-  ctxB.putImageData(imgB, 0, 0);
-  const bumpMap = new THREE.CanvasTexture(cb);
-  bumpMap.wrapS = bumpMap.wrapT = THREE.RepeatWrapping;
+  ctxN.putImageData(imgN, 0, 0);
+  const normalMap = new THREE.CanvasTexture(cn);
+  normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
 
-  // ---- 粗糙度（湿岩局部反光）----
+  // ---- 粗糙度（湿岩局部反光 + 垂直渗水痕：水线更亮更滑）----
   const [cr, ctxR] = canvas(size, size);
   const imgR = ctxR.createImageData(size, size);
   for (let i = 0; i < size * size; i++) {
-    const v = Math.max(150, Math.min(255, 255 - macro[i] * 90));
+    const v = Math.max(140, Math.min(255, 255 - macro[i] * 100));
     imgR.data[i * 4] = imgR.data[i * 4 + 1] = imgR.data[i * 4 + 2] = v;
     imgR.data[i * 4 + 3] = 255;
   }
   ctxR.putImageData(imgR, 0, 0);
+  // 渗水痕：顺 V 方向的暗色（低粗糙度=更湿更亮）蜿蜒条带
+  ctxR.globalAlpha = 0.5;
+  for (let i = 0; i < 26; i++) {
+    const x0 = rand2(i, 21) * size;
+    const w = 2 + rand2(i, 23) * 8;
+    const grad = ctxR.createLinearGradient(0, 0, 0, size);
+    grad.addColorStop(0, 'rgba(105,105,105,0.0)');
+    grad.addColorStop(0.25 + rand2(i, 25) * 0.3, 'rgba(96,96,96,0.75)');
+    grad.addColorStop(1, 'rgba(120,120,120,0.35)');
+    ctxR.fillStyle = grad;
+    ctxR.beginPath();
+    let x = x0;
+    ctxR.moveTo(x, 0);
+    for (let y = 0; y <= size; y += 16) {
+      x += (rand2(i, y) - 0.5) * 10;
+      ctxR.lineTo(x, y);
+    }
+    for (let y = size; y >= 0; y -= 16) {
+      ctxR.lineTo(x + w + Math.sin(y * 0.05 + i) * 2, y);
+      x += (rand2(i + 7, y) - 0.5) * 4;
+    }
+    ctxR.closePath();
+    ctxR.fill();
+  }
+  ctxR.globalAlpha = 1;
   const roughnessMap = new THREE.CanvasTexture(cr);
   roughnessMap.wrapS = roughnessMap.wrapT = THREE.RepeatWrapping;
 
-  return { map, bumpMap, roughnessMap };
+  return { map, normalMap, roughnessMap };
 }
 
 /** 焦散动画帧：正弦干涉网（cheap caustic），循环 n 帧 */

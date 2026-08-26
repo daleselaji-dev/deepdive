@@ -19,17 +19,17 @@ export interface QualityProfile {
 
 const PROFILES: Record<QualityProfile['tier'], QualityProfile> = {
   ultra: {
-    tier: 'ultra', maxDPR: 2.0, particles: 2600, tubeSegments: 1400, tubeRadial: 56,
+    tier: 'ultra', maxDPR: 2.0, particles: 2600, tubeSegments: 1600, tubeRadial: 72,
     rocks: 340, godRays: 14, texSize: 1024, fish: 120, plankton: 1050, jellies: 12,
     branches: 26, beamSegs: 48, causticSize: 256, causticFrames: 16,
   },
   high: {
-    tier: 'high', maxDPR: 1.75, particles: 1400, tubeSegments: 1000, tubeRadial: 40,
+    tier: 'high', maxDPR: 1.75, particles: 1400, tubeSegments: 1150, tubeRadial: 52,
     rocks: 220, godRays: 10, texSize: 512, fish: 80, plankton: 650, jellies: 9,
     branches: 18, beamSegs: 32, causticSize: 192, causticFrames: 12,
   },
   mobile: {
-    tier: 'mobile', maxDPR: 1.25, particles: 620, tubeSegments: 620, tubeRadial: 28,
+    tier: 'mobile', maxDPR: 1.25, particles: 620, tubeSegments: 680, tubeRadial: 32,
     rocks: 120, godRays: 6, texSize: 320, fish: 44, plankton: 320, jellies: 6,
     branches: 10, beamSegs: 24, causticSize: 128, causticFrames: 8,
   },

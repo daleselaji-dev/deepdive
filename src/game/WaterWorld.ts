@@ -172,8 +172,8 @@ export class WaterWorld {
     // ---------- 峭壁环 + 丛林剪影 + 垂根 ----------
     const cliffMat = new THREE.MeshStandardMaterial({
       map: cave.rock.map,
-      bumpMap: cave.rock.bumpMap,
-      bumpScale: 0.9,
+      normalMap: cave.rock.normalMap,
+      normalScale: new THREE.Vector2(0.8, 0.8),
       color: 0x8d978c,
       roughness: 0.92,
       side: THREE.BackSide,

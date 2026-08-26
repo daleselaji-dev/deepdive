@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { QualityProfile } from './quality';
 import type { Models } from './Models';
 import { rockMaps } from './textures';
+import { boulderGeometry, vnoise3 } from './geo';
 
 /**
  * 「寂静之井」v2 —— 闭环多区洞穴系统（docs/GAME_DESIGN.md §2）。
@@ -49,26 +50,21 @@ export interface CaveProp {
   taken?: boolean;
 }
 
-const n2 = (a: number, b: number): number => {
-  const s = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453;
-  return (s - Math.floor(s)) * 2 - 1;
-};
-
-/** 平滑分形噪声（径向位移用） */
+/**
+ * 域扭曲分形噪声（径向位移用）：
+ * 角向用 cos/sin 映射到 3D 噪声空间——天然周期化，修掉 ang=0/2π 接缝裂纹；
+ * 低频 warp 场先推挤采样点，凸包不再呈现规则网格状「馒头阵」。
+ */
 function ridged(t: number, ang: number): number {
+  const ca = Math.cos(ang), sa = Math.sin(ang);
+  const warp = vnoise3(t * 9 + 3.7, ca * 1.2, sa * 1.2) * 1.5;
   let v = 0, amp = 1, f = 1;
-  for (let o = 0; o < 4; o++) {
-    const x = t * 40 * f;
-    const y = ang * 3 * f;
-    const xi = Math.floor(x), yi = Math.floor(y);
-    const xf = x - xi, yf = y - yi;
-    const u = xf * xf * (3 - 2 * xf), w = yf * yf * (3 - 2 * yf);
-    const a = n2(xi, yi), b = n2(xi + 1, yi), c = n2(xi, yi + 1), d = n2(xi + 1, yi + 1);
-    v += (a + (b - a) * u + (c - a) * w + (a - b - c + d) * u * w) * amp;
+  for (let o = 0; o < 5; o++) {
+    v += vnoise3(t * 40 * f + warp, ca * 3 * f + warp * 0.6, sa * 3 * f) * amp;
     amp *= 0.5;
     f *= 2;
   }
-  return v;
+  return v * 0.968; // 5 倍频总幅 1.9375 → 归一回 4 倍频的 1.875，位移预算不变
 }
 
 /** 主脉控制点：[x, y, z, 区名] —— 闭环（尾接头） */
@@ -270,8 +266,8 @@ export class Cave {
     // ---------- 网格 ----------
     const rockMat = new THREE.MeshStandardMaterial({
       map: this.rock.map,
-      bumpMap: this.rock.bumpMap,
-      bumpScale: 1.4,
+      normalMap: this.rock.normalMap, // Sobel 法线：比 bump 更锐利的凹凸光照
+      normalScale: new THREE.Vector2(1.15, 1.15),
       roughnessMap: this.rock.roughnessMap,
       color: 0x93a29c,
       roughness: 0.96,
@@ -489,26 +485,20 @@ export class Cave {
     return best;
   }
 
-  /** 岩壁凸石：跨主脉打散管壁剪影 */
+  /** 岩壁凸石：跨主脉打散管壁剪影（3 款有机巨石变体轮换，平滑法线无棱切） */
   private buildRocks(q: QualityProfile, baseMat: THREE.MeshStandardMaterial): void {
-    const geo = new THREE.IcosahedronGeometry(1, 1);
-    const p = geo.attributes.position;
-    for (let i = 0; i < p.count; i++) {
-      const v = new THREE.Vector3().fromBufferAttribute(p, i);
-      v.multiplyScalar(1 + n2(i, i * 3) * 0.38);
-      p.setXYZ(i, v.x, v.y, v.z);
-    }
-    geo.computeVertexNormals();
     const mat = baseMat.clone();
     mat.color.set(0x606d67);
     mat.vertexColors = false;
     mat.side = THREE.FrontSide;
-    const mesh = new THREE.InstancedMesh(geo, mat, q.rocks);
+    const variants = [boulderGeometry(1.7), boulderGeometry(4.2), boulderGeometry(9.1)];
+    const per = Math.ceil(q.rocks / variants.length);
+    const meshes = variants.map((g) => new THREE.InstancedMesh(g, mat, per));
     const m = new THREE.Matrix4();
     const quat = new THREE.Quaternion();
     const scl = new THREE.Vector3();
     const main = this.paths[0];
-    for (let i = 0; i < q.rocks; i++) {
+    for (let i = 0; i < per * variants.length; i++) {
       const t = Math.random();
       const ang = Math.random() * Math.PI * 2;
       const center = main.curve.getPointAt(t);
@@ -529,9 +519,9 @@ export class Cave {
       scl.set(s, s * (0.6 + Math.random() * 0.9), s);
       quat.setFromEuler(new THREE.Euler(Math.random() * 3, Math.random() * 3, Math.random() * 3));
       m.compose(posv, quat, scl);
-      mesh.setMatrixAt(i, m);
+      meshes[i % variants.length].setMatrixAt(Math.floor(i / variants.length), m);
     }
-    this.group.add(mesh);
+    for (const mesh of meshes) this.group.add(mesh);
   }
 
   // ---------- 空间查询 ----------

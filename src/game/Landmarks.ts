@@ -3,6 +3,7 @@ import type { QualityProfile } from './quality';
 import type { Cave } from './Cave';
 import type { Models } from './Models';
 import { glyphTexture, woodTexture } from './textures';
+import { boulderGeometry, dripstoneGeometry } from './geo';
 
 /**
  * 分区地标（docs/GAME_DESIGN.md §2.2）：
@@ -29,8 +30,8 @@ export class Landmarks {
   constructor(q: QualityProfile, cave: Cave, models: Models) {
     const rockMat = new THREE.MeshStandardMaterial({
       map: cave.rock.map,
-      bumpMap: cave.rock.bumpMap,
-      bumpScale: 1.1,
+      normalMap: cave.rock.normalMap,
+      normalScale: new THREE.Vector2(1.15, 1.15),
       color: 0x59655f,
       roughness: 0.95,
     });
@@ -52,37 +53,54 @@ export class Landmarks {
   private buildSpeleothems(q: QualityProfile, cave: Cave, mat: THREE.MeshStandardMaterial): void {
     const { t0, t1 } = cave.zoneRange('gallery');
     const count = Math.floor(q.rocks * 0.55);
-    const geo = new THREE.ConeGeometry(0.22, 2.6, 7);
-    const mesh = new THREE.InstancedMesh(geo, mat, count);
+    // 3 款滴水石变体（裙边褶皱/蚀沟/轴弯各异）轮换实例化，替代 7 段圆锥「铅笔尖」
+    const variants = [dripstoneGeometry(1.3), dripstoneGeometry(6.8), dripstoneGeometry(12.4)];
+    const per = Math.ceil(count / variants.length);
+    const total = per * variants.length;
+    const meshes = variants.map((g) => new THREE.InstancedMesh(g, mat, per));
     const m = new THREE.Matrix4();
     const qDown = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI, 0, 0));
     const qUp = new THREE.Quaternion();
-    let i = 0;
-    while (i < count) {
+    let idx = 0;
+    const place = (mm: THREE.Matrix4): void => {
+      if (idx >= total) return;
+      meshes[idx % variants.length].setMatrixAt(Math.floor(idx / variants.length), mm);
+      idx++;
+    };
+    while (idx < total) {
       const t = t0 + Math.random() * (t1 - t0) * 1.35; // 溢出到咽喉口
       const { p: center } = cave.frameAt(0, t);
       const r = cave.radiusAt(t);
-      const isColumn = Math.random() < 0.16;
+      const isColumn = Math.random() < 0.1;
       const fromCeil = isColumn ? true : Math.random() < 0.6;
       const posv = center.clone();
-      posv.x += (Math.random() - 0.5) * r * 1.3;
-      posv.z += (Math.random() - 0.5) * r * 1.3;
+      // 避开泳道中轴：水平偏移下限（粗柱贴脸挡视线、也挡玩家路线）
+      const minOff = r * (isColumn ? 0.5 : 0.34);
+      const offAng = Math.random() * Math.PI * 2;
+      const offR = minOff + Math.random() * (r * 0.75 - minOff);
+      posv.x += Math.cos(offAng) * offR;
+      posv.z += Math.sin(offAng) * offR;
       const s = 0.5 + Math.random() * 1.1;
       if (isColumn) {
-        // 石柱：顶天立地（拉长锥体近似）
-        posv.y = center.y;
-        m.compose(posv, qUp, new THREE.Vector3(s * 0.8, r * 0.86, s * 0.8));
+        // 石柱 = 石笋 + 石钟乳在腰部相接（真实成柱方式，占两个实例槽）
+        posv.y = center.y - r * 0.95;
+        m.compose(posv, qUp, new THREE.Vector3(s * 0.9, r * 1.06, s * 0.9));
+        place(m);
+        const posc = posv.clone();
+        posc.y = center.y + r * 0.95;
+        m.compose(posc, qDown, new THREE.Vector3(s * 0.82, r * 1.06, s * 0.82));
+        place(m);
       } else if (fromCeil) {
-        posv.y = center.y + r * (0.85 + Math.random() * 0.2);
-        m.compose(posv, qDown, new THREE.Vector3(s, s * (1.1 + Math.random() * 0.9), s));
+        posv.y = center.y + r * (0.88 + Math.random() * 0.15);
+        m.compose(posv, qDown, new THREE.Vector3(s * 0.8, 2.6 * s * (1.1 + Math.random() * 0.9), s * 0.8));
+        place(m);
       } else {
-        posv.y = center.y - r * (0.8 + Math.random() * 0.2);
-        m.compose(posv, qUp, new THREE.Vector3(s * 1.3, s * (0.9 + Math.random() * 0.7), s * 1.3));
+        posv.y = center.y - r * (0.85 + Math.random() * 0.18);
+        m.compose(posv, qUp, new THREE.Vector3(s, 2.6 * s * (0.9 + Math.random() * 0.7), s));
+        place(m);
       }
-      mesh.setMatrixAt(i, m);
-      i++;
     }
-    this.group.add(mesh);
+    for (const mesh of meshes) this.group.add(mesh);
 
     // 回廊青冷补光 ×2（石笋剪影可读）
     for (const frac of [0.3, 0.75]) {
@@ -103,29 +121,38 @@ export class Landmarks {
     const { p: center } = cave.frameAt(0, tMid);
     const floorY = center.y - cave.radiusAt(tMid) * 0.9;
     const tower = new THREE.Group();
-    let y = floorY;
-    let rad = 2.6;
-    for (let k = 0; k < 5; k++) {
-      const h = 2.4 - k * 0.3;
-      const seg = new THREE.Mesh(new THREE.ConeGeometry(rad, h * 2.4, 9), mat);
-      seg.position.set(crack.x + Math.sin(k * 4.7) * 0.3, y + h * 0.8, crack.z + Math.cos(k * 3.1) * 0.3);
-      tower.add(seg);
-      y += h * 1.15;
-      rad *= 0.62;
+    // 主塔：一体式巨型石笋（流石裙边+蚀沟高细分），替代 5 段圆锥堆叠的「蛋糕塔」
+    const spire = new THREE.Mesh(dripstoneGeometry(3.3, 24, 32), mat);
+    spire.scale.set(9.5, 11.2, 9.5);
+    spire.position.set(crack.x, floorY, crack.z);
+    tower.add(spire);
+    // 塔肩：两根伴生石笋打破单锥剪影
+    const shoulders: [number, number, number, number, number][] = [
+      [1.9, 0.8, 3.4, 5.2, 7.7],
+      [-1.6, -1.2, 2.6, 3.8, 15.1],
+    ];
+    for (const [dx, dz, sxz, sy, seed] of shoulders) {
+      const side = new THREE.Mesh(dripstoneGeometry(seed, 16, 22), mat);
+      side.scale.set(sxz, sy, sxz);
+      side.position.set(crack.x + dx, floorY, crack.z + dz);
+      tower.add(side);
     }
     // 塔尖被光束击中的亮斑
     const tipGlow = new THREE.PointLight(0xbfe8da, 42, 18, 1.6);
-    tipGlow.position.set(crack.x, y + 0.6, crack.z);
+    tipGlow.position.set(crack.x, floorY + 11.8, crack.z);
     cave.zoneLights.push(tipGlow);
     tower.add(tipGlow);
     // 周围一圈小石笋（构图）
+    const smallGeos = [dripstoneGeometry(21.7, 12, 16), dripstoneGeometry(33.9, 12, 16)];
     for (let k = 0; k < 8; k++) {
       const ang = (k / 8) * Math.PI * 2;
       const s = 0.5 + Math.abs(Math.sin(k * 7.3)) * 0.9;
-      const small = new THREE.Mesh(new THREE.ConeGeometry(0.4 * s, 2.2 * s, 7), mat);
+      const small = new THREE.Mesh(smallGeos[k % 2], mat);
+      small.scale.set(1.43 * s, 2.2 * s, 1.43 * s);
+      small.rotation.y = k * 2.4;
       small.position.set(
         crack.x + Math.cos(ang) * (4 + Math.sin(k * 3.1) * 1.5),
-        floorY + 1.1 * s,
+        floorY,
         crack.z + Math.sin(ang) * (4 + Math.cos(k * 5.7) * 1.5),
       );
       tower.add(small);
@@ -418,12 +445,14 @@ export class Landmarks {
   // ---------- Z7 塌方巨石 ----------
   private buildCollapse(q: QualityProfile, cave: Cave, mat: THREE.MeshStandardMaterial): void {
     const { t0, t1 } = cave.zoneRange('collapse');
-    const geo = new THREE.IcosahedronGeometry(1, 0);
     const count = Math.floor(q.rocks * 0.22);
-    const mesh = new THREE.InstancedMesh(geo, mat, count);
+    // 有机巨石变体（平滑法线）替代 20 面体「骰子堆」；窄缝内贴脸可见 → detail 3
+    const variants = [boulderGeometry(2.9, 3), boulderGeometry(6.3, 3)];
+    const per = Math.ceil(count / variants.length);
+    const meshes = variants.map((g) => new THREE.InstancedMesh(g, mat, per));
     const m = new THREE.Matrix4();
     const quat = new THREE.Quaternion();
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < per * variants.length; i++) {
       const t = t0 + Math.random() * (t1 - t0);
       const { p: center } = cave.frameAt(0, t);
       const r = cave.radiusAt(t);
@@ -434,9 +463,9 @@ export class Landmarks {
       const s = 0.5 + Math.random() * 1.4;
       quat.setFromEuler(new THREE.Euler(Math.random() * 3, Math.random() * 3, Math.random() * 3));
       m.compose(posv, quat, new THREE.Vector3(s, s * (0.7 + Math.random() * 0.6), s));
-      mesh.setMatrixAt(i, m);
+      meshes[i % variants.length].setMatrixAt(Math.floor(i / variants.length), m);
     }
-    this.group.add(mesh);
+    for (const mesh of meshes) this.group.add(mesh);
   }
 
   // ---------- Z8 深渊井（大厅地面的黑洞） ----------
@@ -463,7 +492,7 @@ export class Landmarks {
     abyssDisc.position.set(pc.x, pc.y - 32.5, pc.z);
     this.group.add(abyssDisc);
     // 井口崩落岩块环：厚重的碎石唇缘，遮住地面开洞的裁切锯齿
-    const rimGeo = new THREE.DodecahedronGeometry(1, 0);
+    const rimGeo = boulderGeometry(5.5, 3);
     const rim = new THREE.InstancedMesh(rimGeo, rockMat, 26);
     const m4 = new THREE.Matrix4();
     const qr = new THREE.Quaternion();
@@ -480,13 +509,15 @@ export class Landmarks {
       rim.setMatrixAt(i, m4);
     }
     this.group.add(rim);
-    // 少量岩齿尖刺穿插其间
+    // 少量岩齿尖刺穿插其间（滴水石几何：蚀沟+裙边，不再是 5 段锥）
+    const toothGeos = [dripstoneGeometry(8.1, 12, 16), dripstoneGeometry(19.5, 12, 16)];
     for (let i = 0; i < 8; i++) {
       const ang = (i / 8) * Math.PI * 2 + 0.3;
       const s = 0.6 + Math.abs(Math.sin(i * 5.3)) * 1.0;
-      const tooth = new THREE.Mesh(new THREE.ConeGeometry(0.5 * s, 2.2 * s, 5), rockMat);
-      tooth.position.set(pc.x + Math.cos(ang) * 5.6, pc.y + 0.5, pc.z + Math.sin(ang) * 5.6);
-      tooth.rotation.set((Math.random() - 0.5) * 0.5, 0, (Math.random() - 0.5) * 0.5);
+      const tooth = new THREE.Mesh(toothGeos[i % 2], rockMat);
+      tooth.scale.set(1.8 * s, 2.2 * s, 1.8 * s);
+      tooth.position.set(pc.x + Math.cos(ang) * 5.6, pc.y - 0.5, pc.z + Math.sin(ang) * 5.6);
+      tooth.rotation.set((Math.random() - 0.5) * 0.5, i * 1.9, (Math.random() - 0.5) * 0.5);
       this.group.add(tooth);
     }
     // 深渊冷蓝补光（让大厅轮廓可读，压抑但不致盲黑）
