@@ -47,6 +47,127 @@ export class Landmarks {
     this.buildPit(cave, rockMat);
     this.buildGuidelines(cave);
     this.buildZoneFills(cave);
+    this.buildBatChamber(cave);
+    this.buildFakeLineSlit(cave);
+    this.buildBypassMarks(cave);
+  }
+
+  // ---------- 支线 C 蝙蝠气室（水面气穴 + 粪堆锥 + 倒挂蝙蝠群 + 裂隙漏光） ----------
+  private buildBatChamber(cave: Cave): void {
+    const c = cave.batChamberTop;
+    const wy = cave.batWaterY;
+    const g = new THREE.Group();
+    // 气穴水面：半透明冷青盘——从下往上看是一面发亮的「假出口」
+    const disc = new THREE.Mesh(
+      new THREE.CircleGeometry(3.2, 40),
+      new THREE.MeshStandardMaterial({
+        color: 0x8fb4a8, transparent: true, opacity: 0.4, roughness: 0.12, metalness: 0.4,
+        emissive: 0x2a4a44, emissiveIntensity: 0.55, side: THREE.DoubleSide, depthWrite: false,
+      }),
+    );
+    disc.rotation.x = -Math.PI / 2;
+    disc.position.set(c.x, wy, c.z);
+    g.add(disc);
+    // 洞顶裂隙漏光：一束窄冷光（真实气穴的光源之一）
+    const crackLight = new THREE.PointLight(0xcfe8dc, 10, 10, 1.7);
+    crackLight.position.set(c.x + 0.9, c.y + 2.6, c.z - 0.6);
+    cave.zoneLights.push(crackLight);
+    g.add(crackLight);
+    // 粪堆锥（guano cone）：锥尖探出水面——蝙蝠粪是洞穴食物网的能量输入
+    const guanoMat = new THREE.MeshStandardMaterial({ color: 0x453723, roughness: 1 });
+    const guano: [number, number, number, number][] = [
+      [0.7, 0.5, 1.5, 3.3],
+      [-1.0, -0.7, 1.0, 8.9],
+    ];
+    for (const [dx, dz, s, seed] of guano) {
+      const cone = new THREE.Mesh(dripstoneGeometry(seed, 12, 14), guanoMat);
+      cone.scale.set(2.4 * s, 2.6 * s, 2.4 * s);
+      cone.position.set(c.x + dx, wy - 2.6 * s + 1.0, c.z + dz);
+      g.add(cone);
+    }
+    // 倒挂蝙蝠群：洞顶球冠上的纺锤剪影（受惊盘旋动画在生态轮补齐）
+    const batMat = new THREE.MeshStandardMaterial({ color: 0x120e0a, roughness: 0.95 });
+    const batGeo = new THREE.ConeGeometry(0.05, 0.17, 5);
+    const bats = new THREE.InstancedMesh(batGeo, batMat, 30);
+    const m = new THREE.Matrix4();
+    const dir = new THREE.Vector3();
+    const qFlip = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI, 0, 0));
+    for (let i = 0; i < 30; i++) {
+      // 上半球冠方向（y 分量 0.55+）
+      dir.set(Math.sin(i * 12.9) * 0.8, 0.55 + Math.abs(Math.sin(i * 7.7)) * 0.45, Math.cos(i * 5.3) * 0.8).normalize();
+      const posv = c.clone().addScaledVector(dir, 3.3 * 0.86);
+      m.compose(posv, qFlip, new THREE.Vector3(1, 1 + Math.abs(Math.sin(i * 3.1)) * 0.4, 1));
+      bats.setMatrixAt(i, m);
+    }
+    g.add(bats);
+    // 气穴幽暗环境光（可读不敞亮）
+    const fill = new THREE.PointLight(0x35443c, 5, 9, 1.8);
+    fill.position.set(c.x, wy + 1.5, c.z);
+    cave.zoneLights.push(fill);
+    g.add(fill);
+    this.group.add(g);
+  }
+
+  // ---------- 支线 B 末端「窥视缝」：缝隙后透出主线荧光——错误路线的代价 ----------
+  private buildFakeLineSlit(cave: Cave): void {
+    const { p: end, N } = cave.frameAt(2, 0.96);
+    const r = cave.paths[2].radiusAt(0.96);
+    const pos = end.clone().addScaledVector(N, r * 0.72);
+    const slit = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.1, 1.3),
+      new THREE.MeshBasicMaterial({ color: 0xbdf2ff, fog: false }),
+    );
+    slit.position.copy(pos);
+    slit.lookAt(end);
+    slit.rotation.z = 0.4;
+    this.group.add(slit);
+    const glow = new THREE.PointLight(0x4a9aaa, 3.5, 5, 1.9);
+    glow.position.copy(pos).addScaledVector(N, -0.4);
+    cave.zoneLights.push(glow);
+    this.group.add(glow);
+  }
+
+  // ---------- 支线 D 旁道：cookie 标记 + 洞口岩石环（遮裁剪锯齿）+ 口灯 ----------
+  private buildBypassMarks(cave: Cave): void {
+    const cookieMat = new THREE.MeshStandardMaterial({
+      color: 0xe8e2d0, emissive: 0x4a4433, roughness: 0.5,
+    });
+    for (const ft of [0.18, 0.5, 0.82]) {
+      const { p: center, N, B } = cave.frameAt(4, ft);
+      const r = cave.paths[4].radiusAt(ft) * 0.78;
+      const cookie = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.02, 12), cookieMat);
+      cookie.position.copy(center).addScaledVector(N, Math.cos(-0.7) * r).addScaledVector(B, Math.sin(-0.7) * r);
+      cookie.lookAt(center);
+      cookie.rotation.z = Math.PI / 2;
+      this.group.add(cookie);
+    }
+    // 洞口岩石环：崩落岩块箍住两端开孔的裁剪锯齿（与 pit 井缘同做法）
+    const rimMat = new THREE.MeshStandardMaterial({
+      map: cave.rock.map, normalMap: cave.rock.normalMap,
+      normalScale: new THREE.Vector2(1.0, 1.0), color: 0x4e5a54, roughness: 0.96,
+    });
+    const rimGeos = [boulderGeometry(11.3), boulderGeometry(17.9)];
+    for (const [pid, ft] of [[4, 0.045], [4, 0.955], [3, 0.05]] as const) {
+      const { p: c, N, B, tan } = cave.frameAt(pid, ft);
+      const rr = cave.paths[pid].radiusAt(ft) * 1.08;
+      for (let k = 0; k < 9; k++) {
+        const ang = (k / 9) * Math.PI * 2 + pid + ft * 7;
+        const s = 0.55 + Math.abs(Math.sin(k * 5.7 + pid)) * 0.75;
+        const rock = new THREE.Mesh(rimGeos[k % 2], rimMat);
+        rock.scale.set(s, s * (0.7 + Math.abs(Math.cos(k * 3.1)) * 0.5), s);
+        rock.position.copy(c)
+          .addScaledVector(N, Math.cos(ang) * rr)
+          .addScaledVector(B, Math.sin(ang) * rr)
+          .addScaledVector(tan, Math.sin(k * 9.3) * 0.5);
+        rock.rotation.set(k * 1.7, k * 2.9, k * 0.9);
+        this.group.add(rock);
+      }
+      // 口灯：一盏冷暗标记光——「这里有路」的远距可读性
+      const mouthGlow = new THREE.PointLight(0x3a6a5e, 6, 10, 1.8);
+      mouthGlow.position.copy(c).addScaledVector(tan, pid === 3 ? 1.5 : (ft < 0.5 ? 1.5 : -1.5));
+      cave.zoneLights.push(mouthGlow);
+      this.group.add(mouthGlow);
+    }
   }
 
   // ---------- Z2 石笋回廊 ----------

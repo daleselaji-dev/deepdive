@@ -310,6 +310,29 @@ export class Ecology {
     };
   }
 
+  /** 调试：生态分组可见性开关。group 省略时切换整个生态层。返回切换后的状态表。 */
+  toggle(name?: 'fish' | 'blind' | 'cruisers' | 'plankton' | 'jellies' | 'vents' | 'all'): Record<string, boolean> {
+    const flip = (o: THREE.Object3D | null): void => { if (o) o.visible = !o.visible; };
+    switch (name) {
+      case 'fish': flip(this.fishMesh); break;
+      case 'blind': flip(this.blindMesh); break;
+      case 'cruisers': flip(this.cruiserMesh); break;
+      case 'plankton': flip(this.plankton); break;
+      case 'jellies': for (const j of this.jellies) flip(j.group); break;
+      case 'vents': for (const v of this.vents) flip(v.pts); break;
+      default: flip(this.group);
+    }
+    return {
+      all: this.group.visible,
+      fish: this.fishMesh?.visible ?? false,
+      blind: this.blindMesh?.visible ?? false,
+      cruisers: this.cruiserMesh?.visible ?? false,
+      plankton: this.plankton.visible,
+      jellies: this.jellies[0]?.group.visible ?? false,
+      vents: this.vents[0]?.pts.visible ?? false,
+    };
+  }
+
   update(dt: number, time: number, playerPos: THREE.Vector3, playerSpeed: number): void {
     this.updateFish(dt, time, playerPos);
     this.updateBlind(dt, time, playerPos);

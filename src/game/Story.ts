@@ -60,6 +60,14 @@ const SLATES: { key: string; text: string }[] = [
     key: 's7-altar',
     text: '祭坛上的玉器被人重新摆过。\n照片里它们朝东，朝着日出。\n现在全部朝下。\n朝着井。',
   },
+  {
+    key: 's8-airbell',
+    text: '上面是气穴，不是出口。\n这里的空气几十年没换过——别信它。\n咬嘴留在嘴里。看一眼蝙蝠就走。\n—— L.C.',
+  },
+  {
+    key: 's9-bypass',
+    text: '旁道勘通。沉船厅到深渊大厅，两条路。\n塌方那条近，这条稳。\n我在中段挂了备用瓶。\n读到这块板的人：走稳的这条。\n—— L.C.',
+  },
 ];
 
 /** 气瓶元数据：empty 的那支是被人用空又摆回去的 */
@@ -71,6 +79,7 @@ const TANKS: { empty: boolean; text: string }[] = [
     text: '压力表：0。\n有人用完了它，又把它摆回原位。\n摆得整整齐齐，标签朝外。',
   },
   { empty: false, text: '荧光标旁的最后一瓶。\n有人希望你能回去。\n或者，希望「回去的人」是谁都行。' },
+  { empty: false, text: '旁道中段的备用瓶，挂在岩楔上。\n瓶身用防水笔写着：「稳的那条」。\n和写字板是同一个笔迹。' },
 ];
 
 /** 可观察物件（非拾取）：靠近触发一次环境描述，物件保留在原地 */
@@ -173,13 +182,16 @@ export class Story {
     slateAt(4, 'wreck', 0.86, 0.7); //    S5 一排的鳍（silt-out 之后）
     slateAt(5, 'collapse', 0.55, -1.1); //S6 另一块「第 1 天」
     slateAt(6, null, 0.8, -0.9, 1); //    S7 祭坛玉器（支线 1）
+    slateAt(7, null, 0.72, 0.6, 3); //    S8 气穴警示（支线 3 蝙蝠气室下方）
+    slateAt(8, null, 0.42, 1.2, 4); //    S9 旁道说明（支线 4 塌方旁道中段）
 
-    // ---------- 备用气瓶（T3 是空的） ----------
+    // ---------- 备用气瓶（T3 是空的；T5 是旁道奖励） ----------
     this.tankProps.push(
       cave.addProp('tank', zt('gallery', 0.85), -2.6),
       cave.addProp('tank', zt('hall', 0.78), 2.1),
       cave.addProp('tank', zt('collapse', 0.62), -1.2),
       cave.addProp('tank', zt('chimney', 0.3), 1.8),
+      cave.addProp('tank', 0.55, -0.8, 4),
     );
 
     // ---------- 可观察物件（探索奖励：每区一个秘密） ----------

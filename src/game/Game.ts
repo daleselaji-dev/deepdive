@@ -184,8 +184,74 @@ export class Game {
 
     this.renderer.setAnimationLoop(() => this.frame());
 
-    // 调试钩子（docs/WORKFLOW.md §5）：jump/o2/n2/phase/end
+    // 调试钩子（docs/WORKFLOW.md §5）：help() 打印全表
     (window as unknown as { __dd: object }).__dd = {
+      help: (): Record<string, string> => ({
+        'tp(name)': '传送：分区 shaft/gallery/throat/hall/halo/wreck/collapse/abyss/chimney；支线 altar/fakeline/bat/bypass；地标 pit/crack/wrk',
+        'eco(g?)': "生态开关：'fish'|'blind'|'cruisers'|'plankton'|'jellies'|'vents'|省略=整层",
+        'perf()': '性能 HUD 开关（FPS/drawcall/三角形/活跃灯数）',
+        'pick()': '准星射线：命中对象层级/距离/世界坐标',
+        'jump(t)/zone(n,f)': '主脉进度传送 / 分区比例传送',
+        'look(yaw,pitch)/lookWorld(xyz)/lookAncient()': '视角控制',
+        'move(x,y,z)': '直接移动（含支线，自动吸附路径）',
+        'o2(v)/n2(v)/phase(p)': '氧气/氮气/阶段',
+        'sight()/sightAt(k)': '远古目击触发/跳节点',
+        'silt(s)': '搅浑水 s 秒（0=立即恢复）',
+        'state()/fish()/buddy()/relics()/simState()': '状态查询',
+        'sim(id)/simScale(k)': '安全模拟关启动/时间缩放',
+        'buddyGesture(k)/buddyWarp()': '潜伴手势/瞬移到身边',
+        'mark(name)/boat()': '地标坐标查询',
+      }),
+      tp: (name: string): string => {
+        const zones = ['shaft', 'gallery', 'throat', 'hall', 'halo', 'wreck', 'collapse', 'abyss', 'chimney'];
+        if (zones.includes(name)) {
+          const zr = this.cave.zoneRange(name as ZoneName);
+          this.player.setStart(this.cave, zr.t0 + (zr.t1 - zr.t0) * 0.5);
+          return `→ 分区 ${name}`;
+        }
+        // 支线传送：直接落到支线轴上，resolve 会吸附 pathId
+        const stubSpots: Record<string, [number, number]> = {
+          altar: [1, 0.7], fakeline: [2, 0.8], bat: [3, 0.82], bypass: [4, 0.5],
+        };
+        const spot = stubSpots[name];
+        if (spot) {
+          const { p } = this.cave.frameAt(spot[0], spot[1]);
+          this.player.position.copy(p);
+          this.player.velocity.set(0, 0, 0);
+          this.player.pathId = spot[0];
+          this.player.curveT = spot[1];
+          return `→ 支线 ${name}`;
+        }
+        const marks: Record<string, THREE.Vector3> = {
+          pit: this.cave.pitCenter, crack: this.cave.crackPoint, wrk: this.landmarks.wreckPos,
+        };
+        if (marks[name]) {
+          this.player.position.copy(marks[name]).y += 1.2;
+          this.player.velocity.set(0, 0, 0);
+          return `→ 地标 ${name}`;
+        }
+        return '未知目标：见 __dd.help()';
+      },
+      eco: (g?: Parameters<Ecology['toggle']>[0]) => this.ecology.toggle(g),
+      perf: () => this.togglePerf(),
+      pick: (): { chain: string; geo: string; color: string; dist: number; point: number[] } | null => {
+        const rc = new THREE.Raycaster();
+        rc.setFromCamera(new THREE.Vector2(0, 0), this.player.camera);
+        const h = rc.intersectObjects(this.scene.children, true)[0];
+        if (!h) return null;
+        const chain: string[] = [];
+        let p: THREE.Object3D | null = h.object;
+        while (p) { chain.push(p.name || p.type); p = p.parent; }
+        const mesh = h.object as THREE.Mesh;
+        const mat = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) as THREE.MeshStandardMaterial;
+        return {
+          chain: chain.join(' < '),
+          geo: mesh.geometry?.type ?? '?',
+          color: mat?.color ? `#${mat.color.getHexString()}` : '?',
+          dist: +h.distance.toFixed(2),
+          point: h.point.toArray().map((v) => +v.toFixed(1)),
+        };
+      },
       jump: (t: number) => {
         this.player.setStart(this.cave, Math.max(0.001, Math.min(0.999, t)));
       },
@@ -566,6 +632,49 @@ export class Game {
     if (this.state === 'play' && this.phase === 'sighting') this.sightingBeats(sightProg);
     this.cullZoneLights();
     this.renderer.render(this.scene, this.player.camera);
+    if (this.perfDiv) this.updatePerf(dt);
+  }
+
+  // ---------- 性能 HUD（__dd.perf() 开关） ----------
+  private perfDiv: HTMLDivElement | null = null;
+  private perfFrames = 0;
+  private perfClock = 0;
+
+  private togglePerf(): string {
+    if (this.perfDiv) {
+      this.perfDiv.remove();
+      this.perfDiv = null;
+      return 'perf HUD off';
+    }
+    const d = document.createElement('div');
+    d.style.cssText =
+      'position:fixed;top:8px;left:8px;z-index:99;padding:6px 10px;font:11px/1.5 monospace;' +
+      'color:#9fe8d8;background:rgba(2,10,12,0.72);border:1px solid rgba(120,220,200,0.25);' +
+      'border-radius:4px;pointer-events:none;white-space:pre';
+    document.body.appendChild(d);
+    this.perfDiv = d;
+    this.perfFrames = 0;
+    this.perfClock = 0;
+    return 'perf HUD on';
+  }
+
+  private updatePerf(dt: number): void {
+    this.perfFrames++;
+    this.perfClock += dt;
+    if (this.perfClock < 0.5) return;
+    const fps = this.perfFrames / this.perfClock;
+    const info = this.renderer.info;
+    let lightsOn = 0;
+    for (const l of this.cave.zoneLights) if (l.visible) lightsOn++;
+    for (const l of this.cave.propLights) if (l.visible) lightsOn++;
+    this.perfDiv!.textContent =
+      `FPS ${fps.toFixed(0)}  (${(1000 / fps).toFixed(1)}ms)\n` +
+      `calls ${info.render.calls}  tris ${(info.render.triangles / 1000).toFixed(0)}k\n` +
+      `lights ${lightsOn}/${this.cave.zoneLights.length + this.cave.propLights.length}` +
+      `  geo ${info.memory.geometries}  tex ${info.memory.textures}\n` +
+      `zone ${this.cave.zoneAt(this.player.mainT)}  tier ${this.q.tier}  dpr ${this.renderer.getPixelRatio().toFixed(2)}`;
+    this.perfFrames = 0;
+    this.perfClock = 0;
   }
 
   /** 区域点光按距离启停（全场活跃点光受控） */

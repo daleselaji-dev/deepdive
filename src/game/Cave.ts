@@ -154,6 +154,9 @@ export class Cave {
   readonly crackPoint = new THREE.Vector3(); // 光之厅顶部裂隙
   readonly poolCenter = new THREE.Vector3(0, 0, 0.6); // 水面泳池中心
   readonly poolRadius = 6.4;
+  /** 蝙蝠气室（支线 C 末端腔体中心）；水面高度 batWaterY */
+  readonly batChamberTop = new THREE.Vector3();
+  readonly batWaterY = -3.4;
 
   private zoneT = new Map<ZoneName, { t0: number; t1: number }>();
   readonly rock: ReturnType<typeof rockMaps>;
@@ -255,6 +258,37 @@ export class Cave {
     ]);
     this.paths.push(stubB);
 
+    // ---------- 支线 C：蝙蝠气室（回廊上方爬升，尽头是水面气穴——洞口段真实生态） ----------
+    const stubC = this.buildStub(3, [
+      [-18, -16, 15.5],
+      [-21, -11, 19],
+      [-23.5, -6, 21.5],
+      [-24.5, -2.6, 23],
+    ], [
+      { t: 0, r: 2.4 },
+      { t: 0.45, r: 1.7 },
+      { t: 0.8, r: 2.9 },
+      { t: 1, r: 3.3 },
+    ]);
+    this.paths.push(stubC);
+    this.batChamberTop.set(-24.5, -2.6, 23);
+
+    // ---------- 支线 D：塌方旁道（沉船厅→深渊双开口，绕开塌方窄缝的备用通路/回程捷径） ----------
+    // 两端只探入大厅腔体 1~2m：伸太深会在洞口领圈（t<0.2/>0.8）外留下悬浮残壁（M4-L3 踩坑）
+    const stubD = this.buildStub(4, [
+      [-17, -39, -98],
+      [-10, -41, -92],
+      [-4, -43, -88.5],
+      [2, -44, -86.5],
+      [6, -44.3, -86],
+    ], [
+      { t: 0, r: 1.9 },
+      { t: 0.35, r: 1.5 },
+      { t: 0.7, r: 2.4 },
+      { t: 1, r: 2.0 },
+    ]);
+    this.paths.push(stubD);
+
     // ---------- 地标锚点 ----------
     const abyssT = (this.zoneT.get('abyss')!.t0 + this.zoneT.get('abyss')!.t1) / 2;
     const abyssC = mainCurve.getPointAt(abyssT);
@@ -278,8 +312,10 @@ export class Cave {
     rockMat.map!.anisotropy = 4;
 
     this.group.add(this.buildTube(mainPath, q.tubeSegments, q.tubeRadial, rockMat, true));
-    this.group.add(this.buildTube(stubA, 140, Math.max(20, Math.floor(q.tubeRadial * 0.5)), rockMat, false));
-    this.group.add(this.buildTube(stubB, 140, Math.max(20, Math.floor(q.tubeRadial * 0.5)), rockMat, false));
+    const stubRadial = Math.max(20, Math.floor(q.tubeRadial * 0.5));
+    for (const s of [stubA, stubB, stubC, stubD]) {
+      this.group.add(this.buildTube(s, 140, stubRadial, rockMat, false));
+    }
 
     this.buildRocks(q, rockMat);
   }
@@ -382,12 +418,19 @@ export class Cave {
               if (cont < -0.6) skip = true;
             }
           }
-          // ③ 支线洞口
+          // ③ 支线洞口（双开口支线两端都开孔；粗筛半径 20 覆盖大厅穿墙点；
+          //    仅支线端部 t<0.25/>0.75 允许开孔——中段贴边不打洞）
           if (!skip) {
             for (const s of stubs) {
-              if (qc.distanceToSquared(s.samples[0]) < 14 * 14) {
+              const nearEnd =
+                qc.distanceToSquared(s.samples[0]) < 20 * 20 ||
+                qc.distanceToSquared(s.samples[s.sampleN]) < 20 * 20;
+              if (nearEnd) {
                 const hit = this.nearestOnPath(s, qc, null);
-                if (hit.dist - s.radiusAt(hit.t) < -0.35) { skip = true; break; }
+                if (hit.dist - s.radiusAt(hit.t) < -0.35 && (hit.t < 0.25 || hit.t > 0.75)) {
+                  skip = true;
+                  break;
+                }
               }
             }
           }
@@ -398,9 +441,14 @@ export class Cave {
             }
           }
         } else {
-          // 支线：深入主厅内部的管壁裁掉（保留 ~1.2m 洞口领圈）
-          const hit = this.nearestOnPath(main, qc, null);
-          if (hit.dist - main.radiusAt(hit.t) < -1.2) skip = true;
+          // 支线：仅两端伸进主厅的管壁裁掉（保留 ~1.2m 洞口领圈）。
+          // 中段穿岩体永不裁——大厅锥形半径过渡带会把贴边的支线中段误判成「主厅内部」，
+          // 裁出透天空球的破面（M4-L3 旁道踩坑记录）。
+          const t = ringT[i];
+          if (t < 0.2 || t > 0.8) {
+            const hit = this.nearestOnPath(main, qc, null);
+            if (hit.dist - main.radiusAt(hit.t) < -1.2) skip = true;
+          }
         }
 
         if (!skip) idx.push(a, b, a + 1, b, b + 1, a + 1);
