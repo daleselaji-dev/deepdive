@@ -50,6 +50,22 @@ const ZONE_BANNER: Record<ZoneName, { cn: string; en: string }> = {
   chimney: { cn: '荧光烟囱', en: 'GLOW CHIMNEY' },
 };
 
+/** M4-L6 自然观察手记：靠近某类生物首次触发的一次性教学字幕（生态互动+科学诚实口吻） */
+const NATURE_NOTES: {
+  key: string;
+  group: 'school' | 'blind' | 'cruisers' | 'crayfish' | 'remipedes' | 'jellies' | 'bats';
+  dist: number;
+  text: string;
+}[] = [
+  { key: 'school', group: 'school', dist: 7, text: '银汉鱼群。它们只住在有光的水层——\n再往下，光和它们都会一起消失。' },
+  { key: 'cruiser', group: 'cruisers', dist: 5, text: '一条独游的大鱼。海鲢会沿暗河缝隙进出天坑上层，\n把这里当作安静的食堂。' },
+  { key: 'blind', group: 'blind', dist: 3.5, text: '尤卡坦盲鳚。终生的黑暗拿走了眼睛和色素，\n只留下侧线里的一张水压地图。' },
+  { key: 'crayfish', group: 'crayfish', dist: 2.6, text: '洞穴盲螯虾。苍白、缓慢、几乎透明——\n在没有季节的水里，它们能活几十年。' },
+  { key: 'remipede', group: 'remipedes', dist: 3, text: '桨足类。盲眼的深层猎手，只住在海水入侵的洞穴水体，\n1979 年人类才第一次见到它们。' },
+  { key: 'jelly', group: 'jellies', dist: 3.5, text: '水螅水母。掌心大小的半透明伞体，随卤下水团漂移——\n淡水层里看不到它们。' },
+  { key: 'bat', group: 'bats', dist: 5, text: '蝙蝠群。它们的粪便是这座洞穴无脊椎食物网的能量来源——\n这个气穴是它们的家，不是出口。' },
+];
+
 export class Game {
   private q = detectQuality();
   private models = new Models();
@@ -117,6 +133,10 @@ export class Game {
   private airPocketTold = false;
   private nextDripAt = 0;
   private nextRumbleAt = 45;
+
+  // M4-L6 自然观察手记
+  private noteTimer = 0;
+  private notesSeen = new Set<string>();
 
   // M4-L5 自适应降档：低帧持续 → 阶梯降 DPR；富余持续 → 缓慢回升
   private fpsEma = 60;
@@ -214,6 +234,7 @@ export class Game {
         'sight()/sightAt(k)': '远古目击触发/跳节点',
         'silt(s)': '搅浑水 s 秒（0=立即恢复）',
         'state()/fish()/buddy()/relics()/simState()': '状态查询',
+        'notes()/report()': '自然手记进度 / 本次运行复盘（深度/资源/收集/到访分区）',
         'sim(id)/simScale(k)': '安全模拟关启动/时间缩放',
         'buddyGesture(k)/buddyWarp()': '潜伴手势/瞬移到身边',
         'mark(name)/boat()': '地标坐标查询',
@@ -365,6 +386,21 @@ export class Game {
         this.buddy.spawn(this.player.position.clone().add(new THREE.Vector3(-1.4, 0.6, 1.4)));
       },
       relics: () => `${this.story.relicsSeen}/${this.story.relicTotal}`,
+      notes: () => `${this.notesSeen.size}/${NATURE_NOTES.length}: ${Array.from(this.notesSeen).join(',')}`,
+      report: () => ({
+        mode: this.mode,
+        phase: this.phase,
+        minutes: +((this.time - this.startedAt) / 60).toFixed(1),
+        maxDepth: +this.maxDepth.toFixed(1),
+        o2: +this.oxygen.toFixed(1),
+        n2: +this.nitrogen.toFixed(1),
+        slates: `${this.story.slatesFound}/${this.story.slateTotal}`,
+        relics: `${this.story.relicsSeen}/${this.story.relicTotal}`,
+        notes: `${this.notesSeen.size}/${NATURE_NOTES.length}`,
+        zonesVisited: Array.from(this.seenZones),
+        branchesVisited: Array.from(this.seenBranches),
+        decoDone: this.decoDone,
+      }),
       sim: (id: number) => this.startSim(id),
       simState: () => this.sim.debugState(),
       simScale: (k: number) => { this.sim.debugScale = Math.max(1, k); },
@@ -874,6 +910,9 @@ export class Game {
     // ---- 分区氛围事件（蝙蝠惊起 / 气穴滴水 / 深区闷响） ----
     this.updateAtmosphere();
 
+    // ---- 自然观察手记（生态互动：靠近首见触发） ----
+    this.updateNatureNotes(dt);
+
     // ---- 心跳张力 ----
     const o2 = this.oxygen / 100;
     const base = o2 < 0.3 ? Math.min(0.85, (0.3 - o2) * 3) : 0;
@@ -1117,17 +1156,43 @@ export class Game {
         this.hud.showEnding(
           'bends',
           '你趴在船板上，关节里有细小的针。\n咳出的泡沫在晨光里是粉红色的。\n你把深渊带上来了一点。',
-          `最大深度 -${this.maxDepth.toFixed(1)}M · 用时 ${timeStr} 分钟 · 写字板 ${slates}/${this.story.slateTotal} · 观察 ${this.story.relicsSeen}/${this.story.relicTotal}\n结局：血里的针（跳过了减压停留）`,
+          `最大深度 -${this.maxDepth.toFixed(1)}M · 用时 ${timeStr} 分钟 · 写字板 ${slates}/${this.story.slateTotal} · 观察 ${this.story.relicsSeen}/${this.story.relicTotal} · 手记 ${this.notesSeen.size}/${NATURE_NOTES.length}\n结局：血里的针（跳过了减压停留）`,
         );
       } else {
         this.hud.showEnding(
           'dawn',
           '太阳正从丛林线上升起来。\n你看见过它照不到的地方，\n以及在那里等了五亿年的东西。',
-          `最大深度 -${this.maxDepth.toFixed(1)}M · 用时 ${timeStr} 分钟 · 写字板 ${slates}/${this.story.slateTotal} · 观察 ${this.story.relicsSeen}/${this.story.relicTotal}\n结局：破晓`,
+          `最大深度 -${this.maxDepth.toFixed(1)}M · 用时 ${timeStr} 分钟 · 写字板 ${slates}/${this.story.slateTotal} · 观察 ${this.story.relicsSeen}/${this.story.relicTotal} · 手记 ${this.notesSeen.size}/${NATURE_NOTES.length}\n结局：破晓`,
         );
       }
       document.exitPointerLock?.();
     }, 2600);
+  }
+
+  /** M4-L6 自然观察手记：0.6s 一次的近距检测，首次靠近某类生物弹一次教学字幕并计数 */
+  private updateNatureNotes(dt: number): void {
+    if (this.mode !== 'story' || this.hud.slateOpen) return;
+    this.noteTimer += dt;
+    if (this.noteTimer < 0.6) return;
+    this.noteTimer = 0;
+    const pp = this.player.position;
+    for (const n of NATURE_NOTES) {
+      if (this.notesSeen.has(n.key)) continue;
+      let p: [number, number, number] | null;
+      if (n.group === 'school') {
+        const pc = this.cave.poolCenter;
+        p = [pc.x, -6, pc.z]; // 鱼群绕天光井光柱（Ecology.fishCenter 同源）
+      } else {
+        p = this.ecology.probeNearest(n.group, pp);
+      }
+      if (!p) continue;
+      const dx = p[0] - pp.x, dy = p[1] - pp.y, dz = p[2] - pp.z;
+      if (dx * dx + dy * dy + dz * dz < n.dist * n.dist) {
+        this.notesSeen.add(n.key);
+        this.hud.subtitle(n.text, `自然手记 ${this.notesSeen.size}/${NATURE_NOTES.length}`, 7);
+        break; // 一次只弹一条
+      }
+    }
   }
 
   /** M4-L4 分区氛围事件：蝙蝠群惊起（音频+字幕）、气穴滴水声景、深区远处岩层闷响 */
