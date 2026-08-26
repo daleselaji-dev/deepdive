@@ -1,13 +1,19 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import fishUrl from '../assets/models/barramundi.glb?url';
+import lanternUrl from '../assets/models/lantern.glb?url';
+import cameraUrl from '../assets/models/camera.glb?url';
+import chestUrl from '../assets/models/chest.glb?url';
+import barrelUrl from '../assets/models/barrel.glb?url';
+import fishbonesUrl from '../assets/models/fishbones.glb?url';
 
 /**
  * 统一模型库（docs/WORKFLOW.md §3.4）：
  * - 外部 GLB（CC0/CC-BY，见 docs/ASSETS_ATTRIBUTION.md）经 vite 内联为 data URI，
- *   GLTFLoader 解码后统一坐标约定：+Z 前进、原点居中、长度归一为 1。
- * - 任何加载失败自动回退**程序化中模**（放样鱼体 + 鳍 + 眼，观感远高于三角锥）。
+ *   GLTFLoader（+MeshoptDecoder）解码后统一坐标约定：+Z 前进、原点居中、长度归一为 1。
+ * - 任何加载失败自动回退：鱼用**程序化中模**，道具由调用方保留程序化版本。
  */
 
 export interface MeshAsset {
@@ -16,9 +22,23 @@ export interface MeshAsset {
   source: 'gltf' | 'procedural';
 }
 
+export type PropName = 'lantern' | 'camera' | 'chest' | 'barrel' | 'fishbones';
+
+const PROP_URLS: Record<PropName, string> = {
+  lantern: lanternUrl,
+  camera: cameraUrl,
+  chest: chestUrl,
+  barrel: barrelUrl,
+  fishbones: fishbonesUrl,
+};
+
+const loader = new GLTFLoader();
+loader.setMeshoptDecoder(MeshoptDecoder);
+
 export class Models {
   /** 主力鱼模型（银汉鱼群/盲鱼/巡游大鱼共用几何） */
   readonly fish: Promise<MeshAsset>;
+  private propCache = new Map<PropName, Promise<THREE.Group | null>>();
 
   constructor() {
     this.fish = loadGlbMesh(fishUrl, { forwardFlip: true }).catch((e) => {
@@ -26,11 +46,60 @@ export class Models {
       return proceduralFish();
     });
   }
+
+  /**
+   * 加载道具 GLB（整场景，保留多网格/多材质）。
+   * 归一约定：包围盒中心置 X/Z 原点，**底面贴 y=0**，最大边长 = 1。
+   * 每次调用返回**独立克隆**（几何共享、材质深拷贝——调用方可以放心调色）。
+   * 失败返回 null（调用方保留程序化版本）。
+   */
+  prop(name: PropName): Promise<THREE.Group | null> {
+    let p = this.propCache.get(name);
+    if (!p) {
+      p = loadGlbScene(PROP_URLS[name]).catch((e) => {
+        console.warn(`[Models] 道具 ${name} 加载失败：`, e);
+        return null;
+      });
+      this.propCache.set(name, p);
+    }
+    return p.then((g) => {
+      if (!g) return null;
+      const c = g.clone(true);
+      c.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (mesh.isMesh) {
+          mesh.material = Array.isArray(mesh.material)
+            ? mesh.material.map((m) => m.clone())
+            : mesh.material.clone();
+        }
+      });
+      return c;
+    });
+  }
+}
+
+/** 加载 GLB 整场景并归一（中心 X/Z 原点、底面 y=0、最大边 1） */
+async function loadGlbScene(url: string): Promise<THREE.Group> {
+  const gltf = await loader.loadAsync(url);
+  const scene = gltf.scene;
+  scene.updateMatrixWorld(true);
+  const bb = new THREE.Box3().setFromObject(scene);
+  const size = bb.getSize(new THREE.Vector3());
+  const center = bb.getCenter(new THREE.Vector3());
+  const len = Math.max(size.x, size.y, size.z) || 1;
+  const wrap = new THREE.Group();
+  wrap.add(scene);
+  scene.position.set(-center.x, -bb.min.y, -center.z);
+  wrap.scale.setScalar(1 / len);
+  // 展平缩放进一个稳定的父级（调用方在 wrap 外再缩放到米制尺寸）
+  const out = new THREE.Group();
+  out.add(wrap);
+  return out;
 }
 
 /** 加载 GLB 中第一个网格，烘焙世界变换并归一（+Z 前进 / 原点居中 / 长度 1） */
 async function loadGlbMesh(url: string, opts: { forwardFlip?: boolean }): Promise<MeshAsset> {
-  const gltf = await new GLTFLoader().loadAsync(url);
+  const gltf = await loader.loadAsync(url);
   gltf.scene.updateMatrixWorld(true);
   let mesh: THREE.Mesh | null = null;
   gltf.scene.traverse((o) => {

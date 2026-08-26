@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { QualityProfile } from './quality';
 import type { Cave } from './Cave';
+import type { Models } from './Models';
 import { glyphTexture, woodTexture } from './textures';
 
 /**
@@ -25,7 +26,7 @@ export class Landmarks {
   private haloMats: THREE.MeshBasicMaterial[] = [];
   private brokenLineEnd: THREE.Mesh | null = null;
 
-  constructor(q: QualityProfile, cave: Cave) {
+  constructor(q: QualityProfile, cave: Cave, models: Models) {
     const rockMat = new THREE.MeshStandardMaterial({
       map: cave.rock.map,
       bumpMap: cave.rock.bumpMap,
@@ -39,7 +40,7 @@ export class Landmarks {
     const halo = this.buildHalocline(q, cave, rockMat);
     this.haloPlaneY = halo.y;
     this.haloCenter.copy(halo.center);
-    this.buildWreck(cave);
+    this.buildWreck(cave, models);
     this.altarLight = this.buildAltar(cave);
     this.buildCollapse(q, cave, rockMat);
     this.buildPit(cave, rockMat);
@@ -226,7 +227,7 @@ export class Landmarks {
   }
 
   // ---------- Z6 沉船（半个世纪前的木质补给船） ----------
-  private buildWreck(cave: Cave): void {
+  private buildWreck(cave: Cave, models: Models): void {
     const { t0, t1 } = cave.zoneRange('wreck');
     const tMid = t0 + (t1 - t0) * 0.45;
     const { p: center, tan } = cave.frameAt(0, tMid);
@@ -285,22 +286,72 @@ export class Landmarks {
       pot.scale.setScalar(0.8 + Math.random() * 0.7);
       wreck.add(pot);
     }
-    // 船头的老黄铜提灯——还亮着（谁点的？）
+    // 船头的老黄铜提灯——还亮着（谁点的？）（Khronos Lantern，CC0；失败保留程序化版本）
     const lantern = new THREE.Group();
-    const cage = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.09, 0.11, 0.2, 6, 1, true),
-      new THREE.MeshStandardMaterial({ color: 0x6a5428, metalness: 0.7, roughness: 0.4, side: THREE.DoubleSide }),
-    );
+    void models.prop('lantern').then((m) => {
+      if (!m) {
+        const cage = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.09, 0.11, 0.2, 6, 1, true),
+          new THREE.MeshStandardMaterial({ color: 0x6a5428, metalness: 0.7, roughness: 0.4, side: THREE.DoubleSide }),
+        );
+        lantern.add(cage);
+        return;
+      }
+      m.scale.setScalar(0.62);
+      m.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (mesh.isMesh) {
+          const mat = mesh.material as THREE.MeshStandardMaterial;
+          if (mat && mat.color) {
+            mat.color.multiply(new THREE.Color(0x9aa89a)); // 铜绿锈色偏
+            mat.emissive = new THREE.Color(0x224a30);
+            mat.emissiveIntensity = 0.4;
+          }
+        }
+      });
+      lantern.add(m);
+    });
     const flame = new THREE.Mesh(
       new THREE.SphereGeometry(0.05, 8, 6),
       new THREE.MeshStandardMaterial({ color: 0x2a4030, emissive: 0x6ee8a0, emissiveIntensity: 2.4 }),
     );
-    lantern.add(cage, flame);
-    lantern.position.set(0.4, 0.75, -3.9);
+    flame.position.y = 0.34;
+    lantern.add(flame);
+    lantern.position.set(0.4, 0.6, -3.9);
     const lanternLight = new THREE.PointLight(0x66d89a, 6, 9, 1.8);
+    lanternLight.position.y = 0.34;
     lantern.add(lanternLight);
     cave.zoneLights.push(lanternLight);
     wreck.add(lantern);
+
+    // 碎场：散落的木桶与鱼骨（Kenney Pirate Kit，CC0）——半世纪补给船的货物
+    const scatter: [ 'barrel' | 'fishbones', number, number, number, number, number ][] = [
+      // [名称, x, z, 缩放, 旋转y, 倾倒]
+      ['barrel', -2.4, 2.6, 0.72, 1.2, 1.45],
+      ['barrel', 3.1, -1.8, 0.68, 2.8, 0],
+      ['barrel', 1.6, 4.4, 0.75, 0.4, 1.5],
+      ['fishbones', -1.2, -2.5, 0.55, 2.2, 0],
+      ['fishbones', 2.4, 1.3, 0.42, 4.4, 0],
+    ];
+    for (const [name, sx, sz, ss, ry, rz] of scatter) {
+      void models.prop(name).then((m) => {
+        if (!m) return;
+        m.scale.setScalar(ss);
+        m.position.set(sx, rz > 0 ? 0.18 : 0.02, sz);
+        m.rotation.set(0, ry, rz);
+        m.traverse((o) => {
+          const mesh = o as THREE.Mesh;
+          if (mesh.isMesh) {
+            const mat = mesh.material as THREE.MeshStandardMaterial;
+            if (mat && mat.color) {
+              mat.color.multiply(new THREE.Color(name === 'fishbones' ? 0xb8c2b4 : 0x4e6058));
+              mat.roughness = Math.min(1, (mat.roughness ?? 0.8) + 0.15);
+            }
+          }
+        });
+        wreck.add(m);
+      });
+    }
     this.group.add(wreck);
 
     // 沉船厅幽绿死水补光（主光压向船体，让龙骨肋骨的剪影可读）

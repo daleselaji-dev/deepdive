@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { QualityProfile } from './quality';
+import type { Models } from './Models';
 import { rockMaps } from './textures';
 
 /**
@@ -40,7 +41,8 @@ export interface CaveHit {
 export interface CaveProp {
   kind:
     | 'slate' | 'tank' | 'tankEmpty' | 'reel' | 'gauge' | 'camera' | 'altar'
-    | 'ammonite' | 'handprints' | 'pot' | 'helictite' | 'crayfish';
+    | 'ammonite' | 'handprints' | 'pot' | 'helictite' | 'crayfish'
+    | 'antiquecam' | 'chest';
   t: number;
   pathId: number;
   mesh: THREE.Object3D;
@@ -160,9 +162,11 @@ export class Cave {
   private zoneT = new Map<ZoneName, { t0: number; t1: number }>();
   readonly rock: ReturnType<typeof rockMaps>;
   private q: QualityProfile;
+  private models: Models;
 
-  constructor(q: QualityProfile) {
+  constructor(q: QualityProfile, models: Models) {
     this.q = q;
+    this.models = models;
     this.rock = rockMaps(q.texSize);
 
     // ---------- 主脉（闭环） ----------
@@ -628,15 +632,21 @@ export class Cave {
   addProp(kind: CaveProp['kind'], t: number, angle: number, pathId = 0): CaveProp {
     const { p: center, N, B } = this.frameAt(pathId, t);
     const path = this.paths[pathId];
-    const r = path.radiusAt(t) * 0.66;
-    const posv = center
-      .clone()
-      .addScaledVector(N, Math.cos(angle) * r)
-      .addScaledVector(B, Math.sin(angle) * r);
+    // 立式道具（三脚架相机/物资箱）直接放洞底并保持直立
+    const standing = kind === 'antiquecam' || kind === 'chest';
+    const r = path.radiusAt(t) * (standing ? 0.8 : 0.66);
+    const posv = standing
+      ? center.clone().add(new THREE.Vector3(
+          Math.cos(angle) * r * 0.4, -r * 0.95, Math.sin(angle) * r * 0.4))
+      : center
+          .clone()
+          .addScaledVector(N, Math.cos(angle) * r)
+          .addScaledVector(B, Math.sin(angle) * r);
 
     const obj = this.buildPropMesh(kind);
     obj.position.copy(posv);
-    obj.lookAt(center);
+    if (standing) obj.rotation.y = angle * 2.1; // 直立 + 随机朝向
+    else obj.lookAt(center);
     this.group.add(obj);
     // 道具辉光灯全部注册进近距剔除列表（前向渲染灯数是帧成本大头）
     obj.traverse((o) => {
@@ -815,6 +825,48 @@ export class Cave {
       }
       const glow = new THREE.PointLight(0xe8f0e4, 1.5, 3.4, 1.8);
       glow.position.z = 0.4;
+      g.add(glow);
+    } else if (kind === 'antiquecam') {
+      // 沉船年代的古董相机（Khronos AntiqueCamera，CC0）：木三脚架 + 铜皮箱机
+      void this.models.prop('camera').then((m) => {
+        if (!m) return;
+        m.scale.setScalar(1.1);
+        m.rotation.y = 0.7;
+        m.traverse((o) => {
+          const mesh = o as THREE.Mesh;
+          if (mesh.isMesh) {
+            const mat = mesh.material as THREE.MeshStandardMaterial;
+            if (mat && mat.color) {
+              mat.color.multiply(new THREE.Color(0x8da49c)); // 沉水半世纪的钙化色偏
+              mat.roughness = Math.min(1, mat.roughness + 0.25);
+            }
+          }
+        });
+        g.add(m);
+      });
+      const glow = new THREE.PointLight(0xd8c8a0, 1.2, 3.2, 1.8);
+      glow.position.set(0, 0.4, 0.4);
+      g.add(glow);
+    } else if (kind === 'chest') {
+      // 船长物资箱（Kenney Pirate Kit，CC0）：锁从里面打开
+      void this.models.prop('chest').then((m) => {
+        if (!m) return;
+        m.scale.setScalar(0.85);
+        m.rotation.y = -0.5;
+        m.traverse((o) => {
+          const mesh = o as THREE.Mesh;
+          if (mesh.isMesh) {
+            const mat = mesh.material as THREE.MeshStandardMaterial;
+            if (mat && mat.color) {
+              mat.color.multiply(new THREE.Color(0x7d928c));
+              mat.roughness = Math.min(1, (mat.roughness ?? 0.8) + 0.2);
+            }
+          }
+        });
+        g.add(m);
+      });
+      const glow = new THREE.PointLight(0xc8b88a, 1.1, 3, 1.8);
+      glow.position.set(0, 0.3, 0.3);
       g.add(glow);
     } else if (kind === 'crayfish') {
       // 盲螯虾群：无色素的白色小虾伏在岩面（顶级掠食者，指甲盖大）

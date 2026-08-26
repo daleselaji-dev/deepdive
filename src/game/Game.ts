@@ -141,9 +141,9 @@ export class Game {
     // 极低冷环境光：只保证岩壁剪影可读（水下层）
     this.scene.add(new THREE.HemisphereLight(0x0e2a33, 0x020608, 0.26));
 
-    this.cave = new Cave(this.q);
+    this.cave = new Cave(this.q, this.models);
     this.scene.add(this.cave.group);
-    this.landmarks = new Landmarks(this.q, this.cave);
+    this.landmarks = new Landmarks(this.q, this.cave, this.models);
     this.scene.add(this.landmarks.group);
     this.water = new WaterWorld(this.q, this.cave, this.scene);
     this.ecology = new Ecology(this.q, this.cave, this.scene, this.models);

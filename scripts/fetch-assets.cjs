@@ -27,7 +27,63 @@ const ASSETS = [
     ],
     // 贴图 256 + WebP；不量化（几何仅 ~2.2k 顶点，避免烘焙精度问题）
     optimize: (src, dst) =>
-      `npx gltf-transform optimize "${src}" "${dst}" --compress false --texture-compress webp --texture-size 256 --simplify false`,
+      `npx gltf-transform optimize "${src}" "${dst}" --compress meshopt --texture-compress webp --texture-size 256 --simplify false`,
+  },
+  {
+    name: 'lantern.glb',
+    license: 'CC0 1.0 · Microsoft（sbtron 制作）捐赠给 Khronos glTF 样例库',
+    mirrors: [
+      'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/Lantern/glTF-Binary/Lantern.glb',
+      'https://cdn.jsdelivr.net/gh/KhronosGroup/glTF-Sample-Assets@main/Models/Lantern/glTF-Binary/Lantern.glb',
+      'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Lantern/glTF-Binary/Lantern.glb',
+    ],
+    optimize: (src, dst) =>
+      `npx gltf-transform optimize "${src}" "${dst}" --compress meshopt --texture-compress webp --texture-size 128 --simplify true --simplify-error 0.001`,
+  },
+  {
+    name: 'camera.glb',
+    license: 'CC0 1.0 · UX3D（Maximillan Kamps 制作）捐赠给 Khronos glTF 样例库',
+    mirrors: [
+      'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/AntiqueCamera/glTF-Binary/AntiqueCamera.glb',
+      'https://cdn.jsdelivr.net/gh/KhronosGroup/glTF-Sample-Assets@main/Models/AntiqueCamera/glTF-Binary/AntiqueCamera.glb',
+      'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/AntiqueCamera/glTF-Binary/AntiqueCamera.glb',
+    ],
+    optimize: (src, dst) =>
+      `npx gltf-transform optimize "${src}" "${dst}" --compress meshopt --texture-compress webp --texture-size 96 --simplify true --simplify-error 0.005`,
+  },
+  // Kenney「Pirate Kit」CC0 props（pmndrs/market-assets 镜像，creator=kenney）
+  {
+    name: 'chest.glb',
+    minBytes: 4000,
+    license: 'CC0 1.0 · Kenney（kenney.nl Pirate Kit）· 镜像 pmndrs/market-assets',
+    mirrors: [
+      'https://raw.githubusercontent.com/pmndrs/market-assets/main/files/models/chest/model.gltf',
+      'https://cdn.jsdelivr.net/gh/pmndrs/market-assets@main/files/models/chest/model.gltf',
+    ],
+    optimize: (src, dst) =>
+      `npx gltf-transform optimize "${src}" "${dst}" --compress meshopt --texture-compress webp --texture-size 128 --simplify false`,
+  },
+  {
+    name: 'barrel.glb',
+    minBytes: 4000,
+    license: 'CC0 1.0 · Kenney（kenney.nl Pirate Kit）· 镜像 pmndrs/market-assets',
+    mirrors: [
+      'https://raw.githubusercontent.com/pmndrs/market-assets/main/files/models/barrel/model.gltf',
+      'https://cdn.jsdelivr.net/gh/pmndrs/market-assets@main/files/models/barrel/model.gltf',
+    ],
+    optimize: (src, dst) =>
+      `npx gltf-transform optimize "${src}" "${dst}" --compress meshopt --texture-compress webp --texture-size 128 --simplify false`,
+  },
+  {
+    name: 'fishbones.glb',
+    minBytes: 4000,
+    license: 'CC0 1.0 · Kenney（kenney.nl Pirate Kit）· 镜像 pmndrs/market-assets',
+    mirrors: [
+      'https://raw.githubusercontent.com/pmndrs/market-assets/main/files/models/fish-bones/model.gltf',
+      'https://cdn.jsdelivr.net/gh/pmndrs/market-assets@main/files/models/fish-bones/model.gltf',
+    ],
+    optimize: (src, dst) =>
+      `npx gltf-transform optimize "${src}" "${dst}" --compress meshopt --texture-compress webp --texture-size 128 --simplify false`,
   },
 ];
 
@@ -67,7 +123,7 @@ async function main() {
       try {
         console.log(`→ 下载 ${asset.name} ← ${url}`);
         await download(url, raw);
-        if (fs.statSync(raw).size < 10_000) throw new Error('文件过小，疑似失败页');
+        if (fs.statSync(raw).size < (asset.minBytes ?? 10_000)) throw new Error('文件过小，疑似失败页');
         ok = true;
         break;
       } catch (e) {

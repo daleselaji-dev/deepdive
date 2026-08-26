@@ -95,6 +95,14 @@ const RELICS: { kind: CaveProp['kind']; text: string }[] = [
     kind: 'crayfish',
     text: '几只无色素的盲螯虾伏在岩面上。\n它们是这里的顶级掠食者。\n指甲盖那么大。',
   },
+  {
+    kind: 'antiquecam',
+    text: '一台木三脚架古董相机，镜头对着船头。\n半个世纪前，有人想在水下拍些什么。\n底片匣是空的——被人取走了。',
+  },
+  {
+    kind: 'chest',
+    text: '船长的物资箱，半埋在淤泥里。\n锁没有被撬——它是从里面打开的。\n箱底只有一盏没了油的灯。',
+  },
 ];
 
 export class Story {
@@ -185,6 +193,8 @@ export class Story {
     relicAt(2, null, 0.55, 1.9, 1); //     陶罐（祭坛支线中段）
     relicAt(3, 'collapse', 0.3, 0.8); //   石膏针晶（塌方区）
     relicAt(4, 'abyss', 0.62, -1.9); //    盲螯虾（深渊大厅）
+    relicAt(5, 'wreck', 0.55, -1.3); //    古董相机（沉船厅：底片匣之谜）
+    relicAt(6, 'wreck', 0.34, 1.9); //     船长物资箱（从里面打开的锁）
   }
 
   get relicsSeen(): number {
