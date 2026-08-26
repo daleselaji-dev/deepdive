@@ -25,6 +25,7 @@ export class Ancient {
   private eyeGlows: THREE.Sprite[] = [];
   private photoMat: THREE.PointsMaterial;
   private rim: THREE.PointLight;
+  private under: THREE.PointLight;
   private prevTan = new THREE.Vector3(0, 0, 1);
 
   constructor(cave: Cave, scene: THREE.Scene) {
@@ -32,12 +33,12 @@ export class Ancient {
       color: 0x6a3428,
       roughness: 0.55,
       metalness: 0.08,
-      emissive: 0x160806,
+      emissive: 0x1e0d08,
     });
     const belly = new THREE.MeshStandardMaterial({
       color: 0x8a6a52,
       roughness: 0.6,
-      emissive: 0x14100a,
+      emissive: 0x1c160e,
     });
     this.eyeMat = new THREE.MeshStandardMaterial({
       color: 0x1a2a1c,
@@ -159,9 +160,9 @@ export class Ancient {
     this.photoMat = new THREE.PointsMaterial({
       map: particleSprite(),
       color: 0x8fe0e8,
-      size: 0.42,
+      size: 0.58,
       transparent: true,
-      opacity: 0.65,
+      opacity: 0.75,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       sizeAttenuation: true,
@@ -169,9 +170,13 @@ export class Ancient {
     this.group.add(new THREE.Points(phGeo, this.photoMat));
 
     // 冷色轮廓光：让它在黑水里"被看见但看不清"
-    this.rim = new THREE.PointLight(0x3a6a78, 90, 42, 1.4);
+    this.rim = new THREE.PointLight(0x3a6a78, 150, 60, 1.4);
     this.rim.position.set(0, 3.5, 0);
     this.group.add(this.rim);
+    // 腹下冷青反光：横越大厅段离开井口辉光后，剪影仍能从下方被"生物光"托出（M4-L8）
+    this.under = new THREE.PointLight(0x2f7a86, 90, 48, 1.5);
+    this.under.position.set(0, -2.8, 1.5);
+    this.group.add(this.under);
 
     // ---------- 巡游路径（井中升起 → 横越 → 回沉） ----------
     const pc = cave.pitCenter;
@@ -252,9 +257,11 @@ export class Ancient {
         eye.lookAt(world.add(dir));
       }
     }
-    // 侧线荧光沿身体缓慢呼吸
-    this.photoMat.opacity = 0.5 + Math.sin(time * 2.2) * 0.2 + (gaze ? 0.25 : 0);
-    this.rim.intensity = 70 + Math.sin(time * 1.3) * 22;
+    // 侧线荧光沿身体缓慢呼吸；对视窗口随身灯提亮——"被看的一眼"必须可读，
+    // 但保持「看得见看不清」的克制（M4-L8：全亮读作展示模型，半亮才是怪物）
+    this.photoMat.opacity = 0.55 + Math.sin(time * 2.2) * 0.2 + (gaze ? 0.3 : 0);
+    this.rim.intensity = (gaze ? 150 : 105) + Math.sin(time * 1.3) * 26;
+    this.under.intensity = (gaze ? 95 : 70) + Math.sin(time * 1.7) * 18;
 
     if (k >= 1) {
       this.playing = false;

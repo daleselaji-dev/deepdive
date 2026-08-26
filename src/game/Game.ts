@@ -33,7 +33,7 @@ const ZONE_ENV: Record<ZoneName, { fog: number; den: number; exp: number }> = {
   halo: { fog: 0x0a1d1c, den: 0.05, exp: 0.9 },
   wreck: { fog: 0x061418, den: 0.044, exp: 0.9 },
   collapse: { fog: 0x040f13, den: 0.062, exp: 0.86 },
-  abyss: { fog: 0x02090e, den: 0.024, exp: 0.84 },
+  abyss: { fog: 0x02090e, den: 0.024, exp: 0.88 },
   chimney: { fog: 0x05161e, den: 0.04, exp: 0.94 },
 };
 

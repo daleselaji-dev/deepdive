@@ -21,15 +21,22 @@ const SPOTS = [
   ['z1-shaft-lookup', 'POS', ['shaft', 0.3], [0.5, -6.5, 2.1], [1.2, 4, 0.9], 3400],
   ['z1-shaft-side', 'POS', ['shaft', 0.3], [-3.5, -9.5, -1.9], [4.5, -2, 6.1], 1400],
   ['z2-gallery', 'gallery', 0.5, -1.1, 0.05, 900],
-  ['z3-throat', 'throat', 0.5, -1.4, 0, 900],
+  // AXIS 型：[名称, 'AXIS', [区名, 机位比例, 注视比例], [机位偏移xyz], [注视偏移xyz], 等待ms]
+  // ——机位与注视点都取管轴上的点（区内比例），再加偏移；解决固定 yaw 怼墙问题（M4-L8）
+  ['z3-throat', 'AXIS', ['throat', 0.42, 0.72], [0, 0.4, 0], [0, -0.4, 0], 1000],
   // MARK 型：[名称, 'MARK', [区名, 区内比例], 地标名, y偏移, 等待ms]
   ['z4-hall-tower', 'MARK', ['hall', 0.16], 'crack', -7, 1400],
-  ['z5-halocline', 'halo', 0.5, -1.8, -0.3, 1200],
-  ['z6-wreck', 'MARK', ['wreck', 0.28], 'wreck', 0.5, 1400],
+  // 卤水镜 Angelita 式构图：云面上低掠俯瞰，枯枝穿云（M4-L7 英雄取景移植）
+  ['z5-halocline', 'AXIS', ['halo', 0.3, 0.55], [0, 0.5, 0], [0, -2.5, 0], 1600],
+  // 沉船斜拍：直接以沉船地标为锚（提灯侧上方俯拍）
+  ['z6-wreck', 'MARKPOS', ['wreck', 0.4, 'wreck'], [-5.5, 3.2, -4], [0, 0.3, 0], 1600],
   ['z6-silt', 'SILT', 0, 0, 0, 2200],
-  ['z7-collapse', 'collapse', 0.3, -2.3, 0, 1400],
+  // 塌方走廊：石膏针晶簇+塌方石堆同框（近景巨石会被手电轰白，机位抬高 1.8m）
+  ['z7-collapse', 'AXIS', ['collapse', 0.2, 0.48], [0, 1.8, 0], [0, -0.5, 0], 1400],
   ['z8-abyss', 'abyss', 0.45, -2.5, -0.2, 1300],
-  ['z8-pit', 'abyss', 0.55, -2.5, -1.0, 900],
+  // MARKPOS 型：[名称, 'MARKPOS', [区名, 区内比例, 地标名], [机位偏移xyz], [注视偏移xyz], 等待ms]
+  // 黑井俯瞰：悬停在井口正上方内侧看「呼吸的幽光」（6.8 偏移会卡进井缘巨石）
+  ['z8-pit', 'MARKPOS', ['abyss', 0.55, 'pit'], [0.3, 3.4, 3.4], [0, -6, 0], 1400],
   // 目击演出：frac 复用为演出进度 k（sightAt 快进 + lookAncient 对准）
   ['sight-rise', 'SIGHT', 0.18, 0, 0, 1600],
   ['sight-gaze', 'SIGHT', 0.47, 0, 0, 1600],
@@ -104,6 +111,61 @@ async function main() {
       }
       await page.evaluate(() => window.__dd.silt(0));
       await new Promise((r) => setTimeout(r, 450));
+    } else if (zone === 'AXIS' || zone === 'MARKPOS') {
+      // AXIS：机位/注视点取管轴上的区内比例点；MARKPOS：两点均相对命名地标。
+      // 首瞄含 zone 传送（触发分区流送/剧情），复位只 move+lookWorld——
+      // 再次 zone 传送会重触发剧情钩子把机位打歪（M4-L8 踩坑）
+      const spec = frac;
+      const camOff = yaw;
+      const lookOff = pitch;
+      const cl = await page.evaluate(
+        (kind, sp, co, lo) => {
+          const dd = window.__dd;
+          const title = document.getElementById('title');
+          if (title && !title.classList.contains('hidden')) document.getElementById('start').click();
+          let cp, lp;
+          if (kind === 'MARKPOS') {
+            dd.zone(sp[0], sp[1]);
+            const m = dd.mark(sp[2]);
+            cp = [m[0] + co[0], m[1] + co[1], m[2] + co[2]];
+            lp = [m[0] + lo[0], m[1] + lo[1], m[2] + lo[2]];
+          } else {
+            dd.zone(sp[0], sp[2]);
+            const look = dd.state().pos;
+            dd.zone(sp[0], sp[1]);
+            const cam = dd.state().pos;
+            cp = [cam[0] + co[0], cam[1] + co[1], cam[2] + co[2]];
+            lp = [look[0] + lo[0], look[1] + lo[1], look[2] + lo[2]];
+          }
+          dd.move(cp[0], cp[1], cp[2]);
+          dd.lookWorld(lp[0], lp[1], lp[2]);
+          dd.silt(0);
+          return { cp, lp };
+        },
+        zone, spec, camOff, lookOff,
+      );
+      await new Promise((r) => setTimeout(r, wait));
+      for (let k = 0; k < 3; k++) {
+        const open = await page.evaluate(() => {
+          const s = document.getElementById('slate');
+          if (s && !s.classList.contains('hidden')) {
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'x' }));
+            return true;
+          }
+          return false;
+        });
+        if (!open) break;
+        await new Promise((r) => setTimeout(r, 550));
+      }
+      await page.evaluate((c) => {
+        const dd = window.__dd;
+        dd.move(c.cp[0], c.cp[1], c.cp[2]);
+        dd.lookWorld(c.lp[0], c.lp[1], c.lp[2]);
+        dd.silt(0);
+        // 瞬态字幕（自然手记/无线电）与截图时序耦合会破坏回归确定性——隐藏
+        document.getElementById('subtitle')?.classList.add('hidden');
+      }, cl);
+      await new Promise((r) => setTimeout(r, 500));
     } else if (zone === 'POS') {
       // 跳区后把相机放到绝对坐标并注视世界点（写字板关闭后再复位一次防物理漂移）
       const [z2, f2] = frac;

@@ -26,6 +26,8 @@ export class Landmarks {
   private altarGems: THREE.Mesh[] = [];
   private haloMats: THREE.MeshBasicMaterial[] = [];
   private brokenLineEnd: THREE.Mesh | null = null;
+  /** M4-L8 黑井呼吸幽光（膜+柱）：缓慢脉动的不祥光 */
+  private pitBreath: THREE.MeshBasicMaterial[] = [];
   /** M4-L5 距离剔除簇：雾外的地标集合整组隐藏（省 drawcall 与 overdraw；无遮挡剔除的补偿） */
   private cullClusters: { obj: THREE.Object3D; center: THREE.Vector3; r2: number }[] = [];
 
@@ -569,7 +571,7 @@ export class Landmarks {
     flame.position.y = 0.34;
     lantern.add(flame);
     lantern.position.set(0.4, 0.6, -3.9);
-    const lanternLight = new THREE.PointLight(0x66d89a, 14, 12, 1.8);
+    const lanternLight = new THREE.PointLight(0x66d89a, 22, 16, 1.8);
     lanternLight.position.y = 0.34;
     lantern.add(lanternLight);
     cave.zoneLights.push(lanternLight);
@@ -750,15 +752,41 @@ export class Landmarks {
     // 深渊冷蓝补光（让大厅轮廓可读，压抑但不致盲黑）
     const { t0, t1 } = cave.zoneRange('abyss');
     const { p: hallC } = cave.frameAt(0, (t0 + t1) / 2);
-    const fill = new THREE.PointLight(0x24485a, 90, 100, 1.3);
+    const fill = new THREE.PointLight(0x24485a, 130, 100, 1.3);
     fill.position.set(hallC.x, hallC.y + 8, hallC.z);
     cave.zoneLights.push(fill);
     this.group.add(fill);
     // 井口幽蓝上照光（深井在"发光"的错觉——它不该发光）
-    const pitGlow = new THREE.PointLight(0x16404e, 22, 30, 1.5);
+    const pitGlow = new THREE.PointLight(0x16404e, 48, 34, 1.5);
     pitGlow.position.set(pc.x, pc.y - 3, pc.z);
     cave.zoneLights.push(pitGlow);
     pg.add(pitGlow);
+    // 呼吸的幽光（M4-L8）：井口发光膜 + 井筒内加色光柱——黑井从「一块黑」变成
+    // 「往下看能看见光、却看不见底」的不祥奇观（fog:false 让它在深渊雾里也远远可见）
+    const breathDisc = new THREE.MeshBasicMaterial({
+      color: 0x1e5866, transparent: true, opacity: 0.16, fog: false,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    });
+    const membrane = new THREE.Mesh(new THREE.CircleGeometry(4.6, 28), breathDisc);
+    membrane.rotation.x = -Math.PI / 2;
+    membrane.position.set(pc.x, pc.y - 1.2, pc.z);
+    pg.add(membrane);
+    this.pitBreath.push(breathDisc);
+    const breathCol = new THREE.MeshBasicMaterial({
+      color: 0x17444f, transparent: true, opacity: 0.1, fog: false,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    });
+    const column = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 4.4, 16, 20, 1, true), breathCol);
+    column.position.set(pc.x, pc.y - 8.5, pc.z);
+    pg.add(column);
+    this.pitBreath.push(breathCol);
+    // 井筒内两级下沉光点：越深越暗——「有底」的错觉被故意留在半路
+    for (const [dy, inten] of [[-8, 26], [-15, 12]] as [number, number][]) {
+      const deep = new THREE.PointLight(0x123a46, inten, 20, 1.6);
+      deep.position.set(pc.x, pc.y + dy, pc.z);
+      cave.zoneLights.push(deep);
+      pg.add(deep);
+    }
     this.group.add(pg);
     this.registerCull(pg, pc, 85);
   }
@@ -921,5 +949,11 @@ export class Landmarks {
     }
     // 断线头摆动
     if (this.brokenLineEnd) this.brokenLineEnd.rotation.y = Math.sin(time * 0.7) * 0.18;
+    // 黑井幽光呼吸（周期 ~9s：慢到刚好让人怀疑是不是自己眼花）
+    if (this.pitBreath.length) {
+      const b = 0.5 + Math.sin(time * 0.7) * 0.5;
+      this.pitBreath[0].opacity = 0.1 + b * 0.12;
+      this.pitBreath[1].opacity = 0.06 + b * 0.08;
+    }
   }
 }
