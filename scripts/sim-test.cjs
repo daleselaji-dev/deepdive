@@ -25,6 +25,7 @@ async function startSim(page, id) {
   await page.evaluate((i) => {
     window.__dd.sim(i);
     window.__dd.simScale(8); // 无头软渲染很慢：放大模拟内部计时
+    window.__dd.adapt(false); // 低帧会触发自适应降档 → 无头回归关闭
   }, id);
   // 关闭简报（450ms 防误触延迟在无头下可能被节流，轮询重试）
   for (let i = 0; i < 12; i++) {

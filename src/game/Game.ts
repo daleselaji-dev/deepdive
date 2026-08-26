@@ -118,6 +118,14 @@ export class Game {
   private nextDripAt = 0;
   private nextRumbleAt = 45;
 
+  // M4-L5 自适应降档：低帧持续 → 阶梯降 DPR；富余持续 → 缓慢回升
+  private fpsEma = 60;
+  private dprScale = 1;
+  private dprLowT = 0;
+  private dprHighT = 0;
+  private adaptOn = true;
+  private lightRank: { l: THREE.PointLight; d2: number }[] = [];
+
   // 潜伴「特奥」（支援潜水员：护送段 + 减压带汇合）
   private buddy!: Buddy;
   private buddyPathId = 0;
@@ -197,6 +205,7 @@ export class Game {
         'eco(g?)': "生态开关：'fish'|'blind'|'cruisers'|'plankton'|'jellies'|'vents'|'remipedes'|'crayfish'|'amphipods'|'bats'|省略=整层",
         'creature(n,i)': "生态个体坐标：'remipedes'|'crayfish'|'jellies'|'bats'|'blind'|'cruisers'",
         'perf()': '性能 HUD 开关（FPS/drawcall/三角形/活跃灯数）',
+        'stats()/adapt(on)': '性能指标快照 / 自适应 DPR 开关（截图脚本应关）',
         'pick()': '准星射线：命中对象层级/距离/世界坐标',
         'jump(t)/zone(n,f)': '主脉进度传送 / 分区比例传送',
         'look(yaw,pitch)/lookWorld(xyz)/lookAncient()': '视角控制',
@@ -241,6 +250,30 @@ export class Game {
       },
       eco: (g?: Parameters<Ecology['toggle']>[0]) => this.ecology.toggle(g),
       perf: () => this.togglePerf(),
+      stats: () => {
+        let zOn = 0, pOn = 0;
+        for (const l of this.cave.zoneLights) if (l.visible) zOn++;
+        for (const l of this.cave.propLights) if (l.visible) pOn++;
+        return {
+          fps: +this.fpsEma.toFixed(1),
+          calls: this.renderer.info.render.calls,
+          tris: this.renderer.info.render.triangles,
+          geos: this.renderer.info.memory.geometries,
+          tex: this.renderer.info.memory.textures,
+          lightsOn: zOn + pOn,
+          lightsTotal: this.cave.zoneLights.length + this.cave.propLights.length,
+          dpr: +this.renderer.getPixelRatio().toFixed(2),
+          dprScale: +this.dprScale.toFixed(2),
+        };
+      },
+      adapt: (on: boolean) => {
+        this.adaptOn = on;
+        if (!on) {
+          this.dprScale = 1;
+          this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, this.q.maxDPR));
+        }
+        return `adaptive DPR ${on ? 'on' : 'off'}`;
+      },
       pick: (): { chain: string; geo: string; color: string; dist: number; point: number[] } | null => {
         const rc = new THREE.Raycaster();
         rc.setFromCamera(new THREE.Vector2(0, 0), this.player.camera);
@@ -632,6 +665,8 @@ export class Game {
 
     this.water.update(dt, this.time);
     this.landmarks.update(this.time);
+    this.landmarks.cullByDistance(this.player.camera.position);
+    this.adaptDPR(dt);
     this.ecology.update(
       dt,
       this.time,
@@ -687,20 +722,61 @@ export class Game {
     this.perfClock = 0;
   }
 
-  /** 区域点光按距离启停（全场活跃点光受控） */
+  /** 区域点光按距离启停 + 预算上限（前向渲染每盏可见点光都进片元循环，必须封顶） */
   private cullZoneLights(): void {
     const p = this.player.camera.position;
+    this.lightRank.length = 0;
     for (const l of this.cave.zoneLights) {
-      l.visible = l.position.distanceToSquared(p) < 48 * 48;
+      l.visible = false;
+      const d2 = l.position.distanceToSquared(p);
+      if (d2 < 48 * 48) this.lightRank.push({ l, d2 });
     }
-    // 道具辉光半径只有 2~3m，26m 外直接关灯
+    this.lightRank.sort((a, b) => a.d2 - b.d2);
+    const zCap = this.q.tier === 'mobile' ? 6 : 10;
+    const zn = Math.min(zCap, this.lightRank.length);
+    for (let i = 0; i < zn; i++) this.lightRank[i].l.visible = true;
+    // 道具辉光半径只有 2~3m：26m 外直接关灯，最近 6 盏封顶
+    this.lightRank.length = 0;
     for (const l of this.cave.propLights) {
       let wp = l.userData.wp as THREE.Vector3 | undefined;
       if (!wp) {
         wp = l.getWorldPosition(new THREE.Vector3());
         l.userData.wp = wp;
       }
-      l.visible = wp.distanceToSquared(p) < 26 * 26;
+      l.visible = false;
+      const d2 = wp.distanceToSquared(p);
+      if (d2 < 26 * 26) this.lightRank.push({ l, d2 });
+    }
+    this.lightRank.sort((a, b) => a.d2 - b.d2);
+    const pn = Math.min(6, this.lightRank.length);
+    for (let i = 0; i < pn; i++) this.lightRank[i].l.visible = true;
+  }
+
+  /** M4-L5 自适应 DPR：帧率 EMA 低于 34 持续 3s → 降 12%；高于 56 持续 8s → 回升 8%（上限档位 DPR） */
+  private adaptDPR(dt: number): void {
+    if (!this.adaptOn) return;
+    const fps = 1 / Math.max(1e-3, dt);
+    this.fpsEma += (fps - this.fpsEma) * Math.min(1, dt * 1.5);
+    const base = Math.min(devicePixelRatio || 1, this.q.maxDPR);
+    if (this.fpsEma < 34 && this.dprScale > 0.62) {
+      this.dprLowT += dt;
+      if (this.dprLowT > 3) {
+        this.dprLowT = 0;
+        this.dprScale = Math.max(0.6, this.dprScale - 0.12);
+        this.renderer.setPixelRatio(base * this.dprScale);
+      }
+    } else {
+      this.dprLowT = 0;
+    }
+    if (this.fpsEma > 56 && this.dprScale < 1) {
+      this.dprHighT += dt;
+      if (this.dprHighT > 8) {
+        this.dprHighT = 0;
+        this.dprScale = Math.min(1, this.dprScale + 0.08);
+        this.renderer.setPixelRatio(base * this.dprScale);
+      }
+    } else {
+      this.dprHighT = 0;
     }
   }
 

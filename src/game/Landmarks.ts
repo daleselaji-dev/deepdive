@@ -26,6 +26,8 @@ export class Landmarks {
   private altarGems: THREE.Mesh[] = [];
   private haloMats: THREE.MeshBasicMaterial[] = [];
   private brokenLineEnd: THREE.Mesh | null = null;
+  /** M4-L5 距离剔除簇：雾外的地标集合整组隐藏（省 drawcall 与 overdraw；无遮挡剔除的补偿） */
+  private cullClusters: { obj: THREE.Object3D; center: THREE.Vector3; r2: number }[] = [];
 
   constructor(q: QualityProfile, cave: Cave, models: Models) {
     const rockMat = new THREE.MeshStandardMaterial({
@@ -125,6 +127,7 @@ export class Landmarks {
     cave.zoneLights.push(fill);
     g.add(fill);
     this.group.add(g);
+    this.registerCull(g, c, 55);
   }
 
   // ---------- 支线 B 末端「窥视缝」：缝隙后透出主线荧光——错误路线的代价 ----------
@@ -132,6 +135,7 @@ export class Landmarks {
     const { p: end, N } = cave.frameAt(2, 0.96);
     const r = cave.paths[2].radiusAt(0.96);
     const pos = end.clone().addScaledVector(N, r * 0.72);
+    const sg = new THREE.Group();
     const slit = new THREE.Mesh(
       new THREE.PlaneGeometry(0.1, 1.3),
       new THREE.MeshBasicMaterial({ color: 0xbdf2ff, fog: false }),
@@ -139,15 +143,18 @@ export class Landmarks {
     slit.position.copy(pos);
     slit.lookAt(end);
     slit.rotation.z = 0.4;
-    this.group.add(slit);
+    sg.add(slit);
     const glow = new THREE.PointLight(0x4a9aaa, 3.5, 5, 1.9);
     glow.position.copy(pos).addScaledVector(N, -0.4);
     cave.zoneLights.push(glow);
-    this.group.add(glow);
+    sg.add(glow);
+    this.group.add(sg);
+    this.registerCull(sg, pos, 50);
   }
 
   // ---------- 支线 D 旁道：cookie 标记 + 洞口岩石环（遮裁剪锯齿）+ 口灯 ----------
   private buildBypassMarks(cave: Cave): void {
+    const bg = new THREE.Group();
     const cookieMat = new THREE.MeshStandardMaterial({
       color: 0xe8e2d0, emissive: 0x4a4433, roughness: 0.5,
     });
@@ -158,7 +165,7 @@ export class Landmarks {
       cookie.position.copy(center).addScaledVector(N, Math.cos(-0.7) * r).addScaledVector(B, Math.sin(-0.7) * r);
       cookie.lookAt(center);
       cookie.rotation.z = Math.PI / 2;
-      this.group.add(cookie);
+      bg.add(cookie);
     }
     // 洞口岩石环：崩落岩块箍住两端开孔的裁剪锯齿（与 pit 井缘同做法）
     const rimMat = new THREE.MeshStandardMaterial({
@@ -166,7 +173,10 @@ export class Landmarks {
       normalScale: new THREE.Vector2(1.0, 1.0), color: 0x4e5a54, roughness: 0.96,
     });
     const rimGeos = [boulderGeometry(11.3), boulderGeometry(17.9)];
+    // 支线 C 洞口环（回廊）与旁道两端环（塌方↔深渊）相距甚远，分属不同剔除簇
+    const cg = new THREE.Group();
     for (const [pid, ft] of [[4, 0.045], [4, 0.955], [3, 0.05]] as const) {
+      const grp = pid === 3 ? cg : bg;
       const { p: c, N, B, tan } = cave.frameAt(pid, ft);
       const rr = cave.paths[pid].radiusAt(ft) * 1.08;
       for (let k = 0; k < 9; k++) {
@@ -179,14 +189,19 @@ export class Landmarks {
           .addScaledVector(B, Math.sin(ang) * rr)
           .addScaledVector(tan, Math.sin(k * 9.3) * 0.5);
         rock.rotation.set(k * 1.7, k * 2.9, k * 0.9);
-        this.group.add(rock);
+        grp.add(rock);
       }
       // 口灯：一盏冷暗标记光——「这里有路」的远距可读性
       const mouthGlow = new THREE.PointLight(0x3a6a5e, 6, 10, 1.8);
       mouthGlow.position.copy(c).addScaledVector(tan, pid === 3 ? 1.5 : (ft < 0.5 ? 1.5 : -1.5));
       cave.zoneLights.push(mouthGlow);
-      this.group.add(mouthGlow);
+      grp.add(mouthGlow);
     }
+    this.group.add(bg, cg);
+    const { p: bypassMid } = cave.frameAt(4, 0.5);
+    this.registerCull(bg, bypassMid, 70);
+    const { p: stubCMouth } = cave.frameAt(3, 0.05);
+    this.registerCull(cg, stubCMouth, 60);
   }
 
   // ---------- Z2 石笋回廊 ----------
@@ -298,6 +313,7 @@ export class Landmarks {
       tower.add(small);
     }
     this.group.add(tower);
+    this.registerCull(tower, crack, 80);
   }
 
   // ---------- Z5 卤水镜面（硫化氢云层 + 枯枝） ----------
@@ -308,6 +324,7 @@ export class Landmarks {
     const tMid = (t0 + t1) / 2;
     const { p: center } = cave.frameAt(0, tMid);
     const y = center.y - cave.radiusAt(tMid) * 0.42;
+    const hg = new THREE.Group(); // 卤水层地标簇（云面/枯枝/菌席）：距离剔除整组启停
 
     // 双层软噪声云面（上亮下浊）
     const cloudTex = this.cloudTexture();
@@ -332,7 +349,7 @@ export class Landmarks {
       plane.rotation.x = -Math.PI / 2;
       plane.position.set(center.x, y + dy, center.z);
       plane.renderOrder = 2;
-      this.group.add(plane);
+      hg.add(plane);
     }
 
     // 枯树枝（Angelita 式）：从洞底穿出云面。
@@ -361,7 +378,7 @@ export class Landmarks {
       const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.05, midR, hAbove, 5), branchMat);
       upper.position.y = hBelow + hAbove / 2;
       tg.add(lower, upper);
-      this.group.add(tg);
+      hg.add(tg);
       // 分叉：云下的分叉同样挂霜
       const n = 1 + Math.floor(Math.random() * 3);
       for (let b = 0; b < n; b++) {
@@ -377,7 +394,7 @@ export class Landmarks {
           bz + (Math.random() - 0.5) * 0.8,
         );
         branch.rotation.set((Math.random() - 0.5) * 1.6, Math.random() * 3, (Math.random() - 0.5) * 1.6);
-        this.group.add(branch);
+        hg.add(branch);
       }
     }
 
@@ -399,14 +416,16 @@ export class Landmarks {
         c3.z + (Math.random() - 0.5) * 3,
       );
       disc.renderOrder = 1;
-      this.group.add(disc);
+      hg.add(disc);
     }
 
     // 云层之上的幽白补光
     const haloFill = new THREE.PointLight(0xc8d8cc, 14, 26, 1.6);
     haloFill.position.set(center.x, y + 4, center.z);
     cave.zoneLights.push(haloFill);
-    this.group.add(haloFill);
+    hg.add(haloFill);
+    this.group.add(hg);
+    this.registerCull(hg, new THREE.Vector3(center.x, y, center.z), 80);
     void rockMat;
     return { y, center };
   }
@@ -559,6 +578,7 @@ export class Landmarks {
       });
     }
     this.group.add(wreck);
+    this.registerCull(wreck, this.wreckPos, 75);
 
     // 沉船厅幽绿死水补光（主光压向船体，让龙骨肋骨的剪影可读）
     const fill = new THREE.PointLight(0x3a5c48, 120, 52, 1.4);
@@ -618,6 +638,7 @@ export class Landmarks {
     cave.zoneLights.push(light);
     altar.add(light);
     this.group.add(altar);
+    this.registerCull(altar, this.altarPos, 60);
     return light;
   }
 
@@ -650,6 +671,7 @@ export class Landmarks {
   // ---------- Z8 深渊井（大厅地面的黑洞） ----------
   private buildPit(cave: Cave, rockMat: THREE.MeshStandardMaterial): void {
     const pc = cave.pitCenter;
+    const pg = new THREE.Group(); // 井口地标簇：距离剔除整组启停
     // 井壁：向下延伸的暗筒
     const wall = new THREE.Mesh(
       new THREE.CylinderGeometry(4.7, 5.4, 34, 20, 3, true),
@@ -661,7 +683,7 @@ export class Landmarks {
       }),
     );
     wall.position.set(pc.x, pc.y - 16, pc.z);
-    this.group.add(wall);
+    pg.add(wall);
     // 井底纯黑
     const abyssDisc = new THREE.Mesh(
       new THREE.CircleGeometry(5.6, 24),
@@ -669,7 +691,7 @@ export class Landmarks {
     );
     abyssDisc.rotation.x = -Math.PI / 2;
     abyssDisc.position.set(pc.x, pc.y - 32.5, pc.z);
-    this.group.add(abyssDisc);
+    pg.add(abyssDisc);
     // 井口崩落岩块环：厚重的碎石唇缘，遮住地面开洞的裁切锯齿
     const rimGeo = boulderGeometry(5.5, 3);
     const rim = new THREE.InstancedMesh(rimGeo, rockMat, 26);
@@ -687,7 +709,7 @@ export class Landmarks {
       );
       rim.setMatrixAt(i, m4);
     }
-    this.group.add(rim);
+    pg.add(rim);
     // 少量岩齿尖刺穿插其间（滴水石几何：蚀沟+裙边，不再是 5 段锥）
     const toothGeos = [dripstoneGeometry(8.1, 12, 16), dripstoneGeometry(19.5, 12, 16)];
     for (let i = 0; i < 8; i++) {
@@ -697,7 +719,7 @@ export class Landmarks {
       tooth.scale.set(1.8 * s, 2.2 * s, 1.8 * s);
       tooth.position.set(pc.x + Math.cos(ang) * 5.6, pc.y - 0.5, pc.z + Math.sin(ang) * 5.6);
       tooth.rotation.set((Math.random() - 0.5) * 0.5, i * 1.9, (Math.random() - 0.5) * 0.5);
-      this.group.add(tooth);
+      pg.add(tooth);
     }
     // 深渊冷蓝补光（让大厅轮廓可读，压抑但不致盲黑）
     const { t0, t1 } = cave.zoneRange('abyss');
@@ -710,7 +732,9 @@ export class Landmarks {
     const pitGlow = new THREE.PointLight(0x16404e, 22, 30, 1.5);
     pitGlow.position.set(pc.x, pc.y - 3, pc.z);
     cave.zoneLights.push(pitGlow);
-    this.group.add(pitGlow);
+    pg.add(pitGlow);
+    this.group.add(pg);
+    this.registerCull(pg, pc, 85);
   }
 
   // ---------- 导览线系统 ----------
@@ -844,6 +868,17 @@ export class Landmarks {
     for (const m of this.chimneyMarkers) {
       const mat = m.material as THREE.MeshStandardMaterial;
       mat.emissiveIntensity = 2.6;
+    }
+  }
+
+  private registerCull(obj: THREE.Object3D, center: THREE.Vector3, radius: number): void {
+    this.cullClusters.push({ obj, center: center.clone(), r2: radius * radius });
+  }
+
+  /** 每帧：按玩家距离启停地标簇（半径取雾能见度上限的宽裕值，玩家察觉不到切换） */
+  cullByDistance(p: THREE.Vector3): void {
+    for (const c of this.cullClusters) {
+      c.obj.visible = p.distanceToSquared(c.center) < c.r2;
     }
   }
 

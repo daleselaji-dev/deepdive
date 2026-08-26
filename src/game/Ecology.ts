@@ -88,6 +88,9 @@ export class Ecology {
   private pkCol: Float32Array;
 
   private jellies: Jelly[] = [];
+  private jellyCenter = new THREE.Vector3();
+  private planktonCenter = new THREE.Vector3();
+  private frameNo = 0;
   private vents: { pts: THREE.Points; pos: Float32Array; base: THREE.Vector3; h: number }[] = [];
 
   private remiMesh: THREE.InstancedMesh | null = null;
@@ -223,6 +226,9 @@ export class Ecology {
     });
     const glowTex = particleSprite();
     const { p: abyssC } = cave.frameAt(0, (abyssT.t0 + abyssT.t1) / 2);
+    this.jellyCenter.copy(abyssC);
+    const { p: pkC } = cave.frameAt(0, (haloT.t0 + abyssT.t1) / 2);
+    this.planktonCenter.copy(pkC);
     const jellyCount = q.jellies * 2;
     for (let i = 0; i < jellyCount; i++) {
       const g = new THREE.Group();
@@ -644,12 +650,18 @@ export class Ecology {
   }
 
   update(dt: number, time: number, playerPos: THREE.Vector3, playerSpeed: number): void {
-    this.updateFish(dt, time, playerPos);
+    // M4-L5 按距节流：雾外（>45~55m）的群体每 3~4 帧才刷一次行为与实例矩阵——
+    // 观感无差（根本看不见），省掉黑水另一端的矩阵合成与 attribute 上传
+    this.frameNo++;
+    const fishFar = playerPos.distanceToSquared(this.fishCenter) > 45 * 45;
+    if (!fishFar || this.frameNo % 4 === 0) this.updateFish(dt, time, playerPos);
     this.updateBlind(dt, time, playerPos);
     this.updateCruisers(dt, time, playerPos);
-    this.updatePlankton(dt, time, playerPos, playerSpeed);
-    this.updateJellies(dt, time, playerPos);
-    this.updateVents(dt);
+    const pkFar = playerPos.distanceToSquared(this.planktonCenter) > 60 * 60;
+    if (!pkFar || this.frameNo % 3 === 0) this.updatePlankton(dt, time, playerPos, playerSpeed);
+    const jellyFar = playerPos.distanceToSquared(this.jellyCenter) > 55 * 55;
+    if (!jellyFar || this.frameNo % 4 === 0) this.updateJellies(dt, time, playerPos);
+    if (this.frameNo % 2 === 0) this.updateVents(dt * 2); // 气泡上涌半帧率足够平滑
     this.updateRemipedes(dt, time, playerPos);
     this.updateCrayfish(dt, time, playerPos);
     this.updateAmphipods(time, playerPos);

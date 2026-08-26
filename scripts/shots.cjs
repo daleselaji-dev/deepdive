@@ -64,6 +64,8 @@ async function main() {
   await page.goto(url, { waitUntil: 'load', timeout: 60000 });
   await page.waitForSelector('#start', { timeout: 30000 });
   await new Promise((r) => setTimeout(r, 1800));
+  // SwiftShader 帧率低会触发自适应降档 → 截图变糊，无头截图一律关闭
+  await page.evaluate(() => window.__dd.adapt(false));
 
   for (const [name, zone, frac, yaw, pitch, wait] of SPOTS) {
     if (zone === null) {

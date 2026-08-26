@@ -22,6 +22,8 @@ async function newPage(browser) {
   await new Promise((r) => setTimeout(r, 1200));
   await page.evaluate(() => document.getElementById('start').click());
   await new Promise((r) => setTimeout(r, 800));
+  // SwiftShader 帧率低会触发自适应降档 → 截图变糊，无头回归一律关闭
+  await page.evaluate(() => window.__dd.adapt(false));
   return page;
 }
 
