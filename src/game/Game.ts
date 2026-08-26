@@ -112,6 +112,12 @@ export class Game {
   private siltUntil = -1; // 搅浑水结束时刻
   private envSnap = false; // 调试跳转后雾立即归位
 
+  // M4-L4 分区氛围：气穴空气段 / 深区远处闷响 / 滴水声景
+  private inAirPocket = false;
+  private airPocketTold = false;
+  private nextDripAt = 0;
+  private nextRumbleAt = 45;
+
   // 潜伴「特奥」（支援潜水员：护送段 + 减压带汇合）
   private buddy!: Buddy;
   private buddyPathId = 0;
@@ -188,7 +194,8 @@ export class Game {
     (window as unknown as { __dd: object }).__dd = {
       help: (): Record<string, string> => ({
         'tp(name)': '传送：分区 shaft/gallery/throat/hall/halo/wreck/collapse/abyss/chimney；支线 altar/fakeline/bat/bypass；地标 pit/crack/wrk',
-        'eco(g?)': "生态开关：'fish'|'blind'|'cruisers'|'plankton'|'jellies'|'vents'|省略=整层",
+        'eco(g?)': "生态开关：'fish'|'blind'|'cruisers'|'plankton'|'jellies'|'vents'|'remipedes'|'crayfish'|'amphipods'|'bats'|省略=整层",
+        'creature(n,i)': "生态个体坐标：'remipedes'|'crayfish'|'jellies'|'bats'|'blind'|'cruisers'",
         'perf()': '性能 HUD 开关（FPS/drawcall/三角形/活跃灯数）',
         'pick()': '准星射线：命中对象层级/距离/世界坐标',
         'jump(t)/zone(n,f)': '主脉进度传送 / 分区比例传送',
@@ -312,6 +319,9 @@ export class Game {
         zone: this.cave.zoneAt(this.player.mainT),
       }),
       fish: () => this.ecology.fishInfo(),
+      creature: (n: Parameters<Ecology['probe']>[0], i = 0) => this.ecology.probe(n, i),
+      creatureNear: (n: Parameters<Ecology['probe']>[0]) =>
+        this.ecology.probeNearest(n, this.player.position),
       buddy: () => ({
         mode: this.buddy.mode,
         pos: this.buddy.worldPos.toArray().map((v) => +v.toFixed(1)),
@@ -785,6 +795,9 @@ export class Game {
     // ---- 分区雾与曝光 ----
     this.updateEnvironment(dt, depth);
 
+    // ---- 分区氛围事件（蝙蝠惊起 / 气穴滴水 / 深区闷响） ----
+    this.updateAtmosphere();
+
     // ---- 心跳张力 ----
     const o2 = this.oxygen / 100;
     const base = o2 < 0.3 ? Math.min(0.85, (0.3 - o2) * 3) : 0;
@@ -814,7 +827,7 @@ export class Game {
       oxygen01: o2,
       depth01,
       sprinting: this.input.sprint,
-      above: this.phase === 'surface' || this.phase === 'boarding',
+      above: this.phase === 'surface' || this.phase === 'boarding' || this.inAirPocket,
     });
 
     // ---- 缺氧结局（模拟模式由 SimDirector 的安全网接管） ----
@@ -1041,17 +1054,54 @@ export class Game {
     }, 2600);
   }
 
+  /** M4-L4 分区氛围事件：蝙蝠群惊起（音频+字幕）、气穴滴水声景、深区远处岩层闷响 */
+  private updateAtmosphere(): void {
+    // 蝙蝠群被惊起（Ecology 状态机产生一次性事件）
+    if (this.ecology.consumeBatStartle()) {
+      this.audio.batFlutter();
+      this.hud.subtitle('灯光扫过洞顶的一瞬，整个穹顶都动了起来。\n上百对翅膀贴着水面盘旋——这里是它们的家，不是你的。', '', 6.5);
+    }
+    // 气穴内：滴水回声 + 首次警示（S8 写字板的口头版）
+    if (this.inAirPocket) {
+      if (this.time >= this.nextDripAt) {
+        this.nextDripAt = this.time + 0.7 + Math.random() * 2.2;
+        this.audio.drip();
+      }
+      if (!this.airPocketTold) {
+        this.airPocketTold = true;
+        this.hud.subtitle('气穴。空气里全是氨味——蝙蝠粪在头顶发酵了几百年。\n咬嘴留在嘴里。这不是能呼吸的地方。', '', 7.5);
+      }
+    }
+    // 深区随机闷响：塌方/沉船/深渊里，远处的岩层每隔几十秒挪一下
+    const zn = this.cave.zoneAt(this.player.mainT);
+    const deep = zn === 'abyss' || zn === 'collapse' || zn === 'wreck' || this.player.pathId === 4;
+    if (deep && this.time >= this.nextRumbleAt) {
+      this.nextRumbleAt = this.time + 24 + Math.random() * 32;
+      this.audio.distantRumble(0.6 + Math.random() * 0.5);
+    }
+    // 不在深区时把计时器往后推：进入深区后至少 12s 才可能响第一声
+    if (!deep) this.nextRumbleAt = Math.max(this.nextRumbleAt, this.time + 12);
+  }
+
   /** 分区雾/曝光/卤水层 */
   private updateEnvironment(dt: number, depth: number): void {
     const fog = this.scene.fog as THREE.FogExp2;
-    let target = ZONE_ENV[this.cave.zoneAt(this.player.mainT)];
+    const zone = this.cave.zoneAt(this.player.mainT);
+    let target = ZONE_ENV[zone];
     // 支线沿用所属大区的雾
     if (this.player.pathId === 1) target = ZONE_ENV.wreck;
     if (this.player.pathId === 2) target = ZONE_ENV.collapse;
+    if (this.player.pathId === 3) target = ZONE_ENV.gallery;
+    if (this.player.pathId === 4) target = ZONE_ENV.collapse;
 
     let fogColor = new THREE.Color(target.fog);
     let den = target.den;
     let exp = target.exp;
+
+    // 深区雾"呼吸"：极慢的密度起伏——压抑感的低频节拍（不影响能见度判断）
+    if (zone === 'abyss' || zone === 'collapse' || this.player.pathId === 4) {
+      den *= 1 + Math.sin(this.time * 0.12) * 0.07;
+    }
 
     // 卤水层下方：硫化氢浊水
     const inHalo =
@@ -1062,6 +1112,18 @@ export class Game {
       den = 0.085;
       exp = 0.82;
     }
+
+    // 支线C 气穴：出水后是幽暗但清透的空气（不可呼吸——高 CO₂/氨，见 S8 警示）
+    const bc = this.cave.batChamberTop;
+    this.inAirPocket =
+      this.player.pathId === 3 &&
+      this.player.position.y > this.cave.batWaterY - 0.15 &&
+      Math.hypot(this.player.position.x - bc.x, this.player.position.z - bc.z) < 3.4;
+    if (this.inAirPocket) {
+      fogColor = new THREE.Color(0x0c1410);
+      den = 0.014;
+      exp = 1.0;
+    }
     // 搅浑水 silt-out：白雾吞掉能见度，尾段 6s 缓慢散开
     if (this.time < this.siltUntil) {
       const left = this.siltUntil - this.time;
@@ -1070,8 +1132,8 @@ export class Game {
       den = den + (0.24 - den) * k2;
       exp = exp - 0.1 * k2;
     }
-    // 水面之上：清晨空气
-    if (this.phase === 'surface' || this.phase === 'boarding' || this.player.position.y > -0.1) {
+    // 水面之上：清晨空气（气穴内的"出水"不算——那里只有一线裂隙光）
+    if (!this.inAirPocket && (this.phase === 'surface' || this.phase === 'boarding' || this.player.position.y > -0.1)) {
       fogColor = new THREE.Color(0x14212a);
       den = 0.004;
       exp = 1.05;

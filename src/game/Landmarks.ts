@@ -3,7 +3,7 @@ import type { QualityProfile } from './quality';
 import type { Cave } from './Cave';
 import type { Models } from './Models';
 import { glyphTexture, woodTexture } from './textures';
-import { boulderGeometry, dripstoneGeometry } from './geo';
+import { boulderGeometry, dripstoneGeometry, vnoise3 } from './geo';
 
 /**
  * 分区地标（docs/GAME_DESIGN.md §2.2）：
@@ -52,11 +52,44 @@ export class Landmarks {
     this.buildBypassMarks(cave);
   }
 
-  // ---------- 支线 C 蝙蝠气室（水面气穴 + 粪堆锥 + 倒挂蝙蝠群 + 裂隙漏光） ----------
+  // ---------- 支线 C 蝙蝠气室（水面气穴 + 粪堆锥 + 裂隙漏光；蝙蝠群动画在 Ecology） ----------
   private buildBatChamber(cave: Cave): void {
     const c = cave.batChamberTop;
     const wy = cave.batWaterY;
     const g = new THREE.Group();
+    // 岩石穹顶：封住支线管末端的开口环（否则从气穴仰望会看穿到天空球，M4-L4 踩坑）。
+    // 半球壳 + 径向噪声位移，rim 半径大于管端半径（3.3）保证与管壁交叠无缝隙。
+    const domeGeo = new THREE.SphereGeometry(4.3, 28, 14, 0, Math.PI * 2, 0, Math.PI * 0.52);
+    const dp = domeGeo.attributes.position;
+    const dv = new THREE.Vector3();
+    for (let i = 0; i < dp.count; i++) {
+      dv.fromBufferAttribute(dp, i);
+      const len = dv.length();
+      if (len > 1e-4) {
+        const n = vnoise3(dv.x * 0.9 + 7.7, dv.y * 0.9, dv.z * 0.9);
+        const k = 1 + (n - 0.5) * 0.22;
+        dp.setXYZ(i, dv.x * k, dv.y * k * 0.62, dv.z * k);
+      }
+    }
+    domeGeo.computeVertexNormals();
+    const dome = new THREE.Mesh(domeGeo, new THREE.MeshStandardMaterial({
+      map: cave.rock.map,
+      normalMap: cave.rock.normalMap,
+      normalScale: new THREE.Vector2(1.15, 1.15),
+      color: 0x4d5a54,
+      roughness: 0.97,
+      side: THREE.DoubleSide,
+    }));
+    dome.position.set(c.x, c.y - 0.7, c.z);
+    g.add(dome);
+    // 穹顶裂隙：一条窄缝发光板（漏光的视觉来源），配合下方的窄冷光
+    const slit = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.14, 1.7),
+      new THREE.MeshBasicMaterial({ color: 0xd8f2e4, fog: false, side: THREE.DoubleSide }),
+    );
+    slit.position.set(c.x + 0.9, c.y + 1.55, c.z - 0.6);
+    slit.rotation.set(Math.PI / 2, 0, 0.7);
+    g.add(slit);
     // 气穴水面：半透明冷青盘——从下往上看是一面发亮的「假出口」
     const disc = new THREE.Mesh(
       new THREE.CircleGeometry(3.2, 40),
@@ -68,9 +101,9 @@ export class Landmarks {
     disc.rotation.x = -Math.PI / 2;
     disc.position.set(c.x, wy, c.z);
     g.add(disc);
-    // 洞顶裂隙漏光：一束窄冷光（真实气穴的光源之一）
+    // 洞顶裂隙漏光：一束窄冷光（真实气穴的光源之一），挂在穹顶裂缝正下方
     const crackLight = new THREE.PointLight(0xcfe8dc, 10, 10, 1.7);
-    crackLight.position.set(c.x + 0.9, c.y + 2.6, c.z - 0.6);
+    crackLight.position.set(c.x + 0.9, c.y + 1.2, c.z - 0.6);
     cave.zoneLights.push(crackLight);
     g.add(crackLight);
     // 粪堆锥（guano cone）：锥尖探出水面——蝙蝠粪是洞穴食物网的能量输入
@@ -85,21 +118,7 @@ export class Landmarks {
       cone.position.set(c.x + dx, wy - 2.6 * s + 1.0, c.z + dz);
       g.add(cone);
     }
-    // 倒挂蝙蝠群：洞顶球冠上的纺锤剪影（受惊盘旋动画在生态轮补齐）
-    const batMat = new THREE.MeshStandardMaterial({ color: 0x120e0a, roughness: 0.95 });
-    const batGeo = new THREE.ConeGeometry(0.05, 0.17, 5);
-    const bats = new THREE.InstancedMesh(batGeo, batMat, 30);
-    const m = new THREE.Matrix4();
-    const dir = new THREE.Vector3();
-    const qFlip = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI, 0, 0));
-    for (let i = 0; i < 30; i++) {
-      // 上半球冠方向（y 分量 0.55+）
-      dir.set(Math.sin(i * 12.9) * 0.8, 0.55 + Math.abs(Math.sin(i * 7.7)) * 0.45, Math.cos(i * 5.3) * 0.8).normalize();
-      const posv = c.clone().addScaledVector(dir, 3.3 * 0.86);
-      m.compose(posv, qFlip, new THREE.Vector3(1, 1 + Math.abs(Math.sin(i * 3.1)) * 0.4, 1));
-      bats.setMatrixAt(i, m);
-    }
-    g.add(bats);
+    // （倒挂蝙蝠群已迁入 Ecology：受惊盘旋状态机 + 事件供 Game 触发音频字幕）
     // 气穴幽暗环境光（可读不敞亮）
     const fill = new THREE.PointLight(0x35443c, 5, 9, 1.8);
     fill.position.set(c.x, wy + 1.5, c.z);
@@ -316,8 +335,13 @@ export class Landmarks {
       this.group.add(plane);
     }
 
-    // 枯树枝（Angelita 式）：从洞底穿出云面
+    // 枯树枝（Angelita 式）：从洞底穿出云面。
+    // 硫菌白霜（M4-L4）：H2S 界面以下的化能细菌把枯枝裹上一层灰白菌壳——
+    // 真实 anchialine 洞穴（如 Cenote Angelita）的标志性景象，云下白、云上深褐。
     const branchMat = new THREE.MeshStandardMaterial({ color: 0x231d16, roughness: 0.95 });
+    const frostMat = new THREE.MeshStandardMaterial({
+      color: 0xd6dcd2, roughness: 0.9, emissive: 0x10140f, emissiveIntensity: 0.6,
+    });
     for (let i = 0; i < q.branches; i++) {
       const t = t0 + Math.random() * (t1 - t0);
       const { p: c2 } = cave.frameAt(0, t);
@@ -325,23 +349,57 @@ export class Landmarks {
       const bx = c2.x + (Math.random() - 0.5) * cave.radiusAt(t) * 1.2;
       const bz = c2.z + (Math.random() - 0.5) * cave.radiusAt(t) * 1.2;
       const h = y - floorY + 1 + Math.random() * 3.5;
-      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.16, h, 5), branchMat);
-      trunk.position.set(bx, floorY + h / 2, bz);
-      trunk.rotation.set((Math.random() - 0.5) * 0.35, 0, (Math.random() - 0.5) * 0.35);
-      this.group.add(trunk);
-      // 分叉
+      // 树干在云面处分成两段：下段带白霜、上段深褐（挂在同一根组下保证同轴）
+      const hBelow = Math.min(h - 0.4, Math.max(0.4, y - floorY - 0.25));
+      const hAbove = h - hBelow;
+      const midR = 0.16 + (0.05 - 0.16) * (hBelow / h);
+      const tg = new THREE.Group();
+      tg.position.set(bx, floorY, bz);
+      tg.rotation.set((Math.random() - 0.5) * 0.35, 0, (Math.random() - 0.5) * 0.35);
+      const lower = new THREE.Mesh(new THREE.CylinderGeometry(midR, 0.16, hBelow, 5), frostMat);
+      lower.position.y = hBelow / 2;
+      const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.05, midR, hAbove, 5), branchMat);
+      upper.position.y = hBelow + hAbove / 2;
+      tg.add(lower, upper);
+      this.group.add(tg);
+      // 分叉：云下的分叉同样挂霜
       const n = 1 + Math.floor(Math.random() * 3);
       for (let b = 0; b < n; b++) {
         const bl = 0.8 + Math.random() * 2;
-        const branch = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.05, bl, 4), branchMat);
+        const by = floorY + h * (0.55 + Math.random() * 0.4);
+        const branch = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.02, 0.05, bl, 4),
+          by < y ? frostMat : branchMat,
+        );
         branch.position.set(
           bx + (Math.random() - 0.5) * 0.8,
-          floorY + h * (0.55 + Math.random() * 0.4),
+          by,
           bz + (Math.random() - 0.5) * 0.8,
         );
         branch.rotation.set((Math.random() - 0.5) * 1.6, Math.random() * 3, (Math.random() - 0.5) * 1.6);
         this.group.add(branch);
       }
+    }
+
+    // 硫菌席毯：云面下岩底的灰白菌毯斑块（复用云纹理做柔和边缘）
+    const matTex = this.cloudTexture();
+    for (let i = 0; i < 6; i++) {
+      const t = t0 + (0.12 + 0.76 * (i / 5)) * (t1 - t0);
+      const { p: c3 } = cave.frameAt(0, t);
+      const fy = c3.y - cave.radiusAt(t) * 0.86;
+      const mat = new THREE.MeshBasicMaterial({
+        map: matTex, color: 0xcfe0d2, transparent: true, opacity: 0.4,
+        depthWrite: false, side: THREE.DoubleSide,
+      });
+      const disc = new THREE.Mesh(new THREE.CircleGeometry(0.9 + Math.random() * 1.2, 20), mat);
+      disc.rotation.x = -Math.PI / 2;
+      disc.position.set(
+        c3.x + (Math.random() - 0.5) * 3,
+        fy + 0.08,
+        c3.z + (Math.random() - 0.5) * 3,
+      );
+      disc.renderOrder = 1;
+      this.group.add(disc);
     }
 
     // 云层之上的幽白补光

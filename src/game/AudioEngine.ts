@@ -344,6 +344,107 @@ export class AudioEngine {
     rum.stop(t + 6.1);
   }
 
+  /** 远处岩层闷响：深区（塌方/沉船/深渊）随机低频事件——绝望氛围的"地骨"声（M4-L4） */
+  distantRumble(intensity = 1): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = this.now();
+    const rum = ctx.createBufferSource();
+    rum.buffer = this.noiseBuffer(3.6);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 90;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.07 * intensity, t + 1.4);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 3.6);
+    rum.connect(lp);
+    lp.connect(g);
+    g.connect(this.muffleFilter);
+    rum.start(t);
+    rum.stop(t + 3.7);
+    // 一声极低的下坠单音：像什么巨大的东西在岩层里挪了一下
+    const sub = ctx.createOscillator();
+    sub.frequency.setValueAtTime(44, t + 0.3);
+    sub.frequency.exponentialRampToValueAtTime(26, t + 2.4);
+    const sg = ctx.createGain();
+    sg.gain.setValueAtTime(0, t + 0.3);
+    sg.gain.linearRampToValueAtTime(0.05 * intensity, t + 1.1);
+    sg.gain.exponentialRampToValueAtTime(0.001, t + 2.6);
+    sub.connect(sg);
+    sg.connect(this.muffleFilter);
+    sub.start(t + 0.3);
+    sub.stop(t + 2.7);
+  }
+
+  /** 蝙蝠群惊起：12Hz 扑翼颤噪 + 高频吱鸣簇（支线C 气穴事件，M4-L4） */
+  batFlutter(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = this.now();
+    const flut = ctx.createBufferSource();
+    flut.buffer = this.noiseBuffer(2.6);
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 1500;
+    bp.Q.value = 0.7;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.05, t + 0.15);
+    g.gain.setValueAtTime(0.05, t + 1.8);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 2.6);
+    const trem = ctx.createOscillator();
+    trem.frequency.value = 12;
+    const tg = ctx.createGain();
+    tg.gain.value = 0.03;
+    trem.connect(tg);
+    tg.connect(g.gain);
+    flut.connect(bp);
+    bp.connect(g);
+    g.connect(this.muffleFilter);
+    flut.start(t);
+    flut.stop(t + 2.7);
+    trem.start(t);
+    trem.stop(t + 2.7);
+    for (let i = 0; i < 6; i++) {
+      const tt = t + 0.1 + Math.random() * 2.0;
+      const osc = ctx.createOscillator();
+      osc.frequency.setValueAtTime(6800 + Math.random() * 1800, tt);
+      osc.frequency.exponentialRampToValueAtTime(3400, tt + 0.06);
+      const og = ctx.createGain();
+      og.gain.setValueAtTime(0, tt);
+      og.gain.linearRampToValueAtTime(0.02, tt + 0.01);
+      og.gain.exponentialRampToValueAtTime(0.001, tt + 0.07);
+      osc.connect(og);
+      og.connect(this.muffleFilter);
+      osc.start(tt);
+      osc.stop(tt + 0.08);
+    }
+  }
+
+  /** 气穴滴水：短促 plink + 一次洞腔回声（支线C 出水后的空气声景，M4-L4） */
+  drip(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = this.now();
+    const f0 = 1500 + Math.random() * 1600;
+    const plink = (tt: number, v: number): void => {
+      const osc = ctx.createOscillator();
+      osc.frequency.setValueAtTime(f0, tt);
+      osc.frequency.exponentialRampToValueAtTime(f0 * 0.55, tt + 0.05);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, tt);
+      g.gain.linearRampToValueAtTime(v, tt + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.001, tt + 0.16);
+      osc.connect(g);
+      g.connect(this.muffleFilter);
+      osc.start(tt);
+      osc.stop(tt + 0.18);
+    };
+    plink(t, 0.05);
+    plink(t + 0.16, 0.018);
+  }
+
   /** 破水面：宽频水花 + 空气骤然打开 */
   breach(): void {
     const ctx = this.ctx;

@@ -1,16 +1,25 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { QualityProfile } from './quality';
 import type { Cave } from './Cave';
 import type { Models, MeshAsset } from './Models';
 import { particleSprite, bubbleSprite } from './textures';
 
 /**
- * 可交互洞穴生态（docs/GAME_DESIGN.md §5）：
+ * 可交互洞穴生态（docs/GAME_DESIGN.md §5；分区依据 docs/WORKFLOW.md §3.9 anchialine 生态说明）：
+ * 淡水层（卤跃层以上）——
  * - 银汉鱼群：天光井光柱绕游，玩家靠近惊散。真实拓扑鱼模型实例（Models.ts）。
- * - 巡游大鱼：光之厅/沉船厅独游的大个体，怕光缓慢避让。
- * - 盲眼洞鱼：贴壁游弋，被手电长照会缓慢趋光（细思恐）。
+ * - 巡游大鱼：天坑上层水体的大个体（现实原型：溶洞海鲢），怕光缓慢避让。
+ * - 盲眼洞鱼：石笋回廊首见、光之厅成群，被手电长照会缓慢趋光（细思恐）。
+ * - 盲螯虾：光之厅/塌方区底栖，苍白无色素，靠太近会尾弹后逃。
+ * - 端足类微群：回廊壁面附近的白色微尘游动点。
+ * 卤跃层以下（海源水体）——
+ * - 桨足类（remipede）：anchialine 标志物种，细长分节泳体腹面朝上缓游。
+ * - 小型水螅水母（hydromedusae）：掌心尺度半透明伞体，深渊井口群游（非大型海月水母）。
+ * 气室段——
+ * - 蝙蝠群：支线C 气穴洞顶倒挂，玩家出水惊起盘旋（事件供 Game 触发音频与字幕）。
+ * 通用——
  * - 浮游发光体：快速游过时脉冲蓝光尾迹。
- * - 深渊水母群：缓慢升降，靠近时收缩闪光并避让。
  * - 换气泡帘：大厅裂隙持续上涌的气泡柱。
  */
 
@@ -43,6 +52,22 @@ interface Jelly {
   shrink: number;
 }
 
+interface Remipede {
+  pos: THREE.Vector3;
+  home: THREE.Vector3;
+  phase: number;
+  speed: number;
+}
+
+interface Crayfish {
+  pos: THREE.Vector3;
+  home: THREE.Vector3;
+  yaw: number;
+  phase: number;
+  dart: THREE.Vector3;
+  cool: number;
+}
+
 export class Ecology {
   readonly group = new THREE.Group();
 
@@ -65,6 +90,27 @@ export class Ecology {
   private jellies: Jelly[] = [];
   private vents: { pts: THREE.Points; pos: Float32Array; base: THREE.Vector3; h: number }[] = [];
 
+  private remiMesh: THREE.InstancedMesh | null = null;
+  private remis: Remipede[] = [];
+
+  private crayMesh: THREE.InstancedMesh | null = null;
+  private crays: Crayfish[] = [];
+
+  private amphi: THREE.Points | null = null;
+  private amphiBase: Float32Array = new Float32Array(0);
+  private amphiPhase: Float32Array = new Float32Array(0);
+
+  private batMesh: THREE.InstancedMesh | null = null;
+  private batRoost: THREE.Matrix4[] = [];
+  private batPos: THREE.Vector3[] = [];
+  private batHome: THREE.Vector3[] = [];
+  private batState: 'roost' | 'fly' | 'return' = 'roost';
+  private batTimer = 0;
+  private batCooldown = 0;
+  private batStartled = false;
+  private batCenter = new THREE.Vector3();
+  private batWaterY = 0;
+
   private dummy = new THREE.Object3D();
 
   constructor(q: QualityProfile, cave: Cave, scene: THREE.Scene, models: Models) {
@@ -84,9 +130,9 @@ export class Ecology {
       });
     }
 
-    // ---------- 盲眼洞鱼 ----------
+    // ---------- 盲眼洞鱼（仅淡水层：回廊首见 + 光之厅成群；卤下海源水体不放淡水种，§3.9） ----------
     const blindCount = Math.max(8, Math.floor(q.fish * 0.12));
-    const zones: ['hall' | 'wreck', number][] = [['hall', 0.4], ['wreck', 0.5]];
+    const zones: ['gallery' | 'hall', number][] = [['gallery', 0.55], ['hall', 0.38], ['hall', 0.68]];
     for (let i = 0; i < blindCount; i++) {
       const [zn, frac] = zones[i % zones.length];
       const zr = cave.zoneRange(zn);
@@ -101,10 +147,11 @@ export class Ecology {
       this.blind.push({ pos: home.clone(), home, phase: Math.random() * 10 });
     }
 
-    // ---------- 巡游大鱼（光之厅 / 沉船厅 / 深渊各 1-2 条独游个体） ----------
-    const cruiserZones: ['hall' | 'wreck' | 'abyss', number][] = q.tier === 'mobile'
-      ? [['hall', 0.5], ['wreck', 0.4]]
-      : [['hall', 0.35], ['hall', 0.7], ['wreck', 0.4], ['abyss', 0.35]];
+    // ---------- 巡游大鱼（淡水层独游个体：天光井悬停 + 回廊 + 光之厅——现实原型是溶洞里的海鲢/大型丽鱼，
+    //             不下卤跃层：海源深水段的真实居民是穴居甲壳类而非大型鱼，§3.9） ----------
+    const cruiserZones: ['shaft' | 'gallery' | 'hall', number][] = q.tier === 'mobile'
+      ? [['hall', 0.5], ['gallery', 0.5]]
+      : [['shaft', 0.6], ['gallery', 0.5], ['hall', 0.35], ['hall', 0.7]];
     for (const [zn, frac] of cruiserZones) {
       const zr = cave.zoneRange(zn);
       const t = zr.t0 + (zr.t1 - zr.t0) * frac;
@@ -162,26 +209,29 @@ export class Ecology {
     this.plankton = new THREE.Points(pkGeo, pkMat);
     this.group.add(this.plankton);
 
-    // ---------- 深渊水母群 ----------
+    // ---------- 深渊水螅水母群（§3.9 尺度修正：anchialine 海源层的真实居民是掌心尺度的
+    //             小型 hydromedusae，不是大型海月水母——M3 的 0.6~1.7m 大伞体按科学说明缩到 0.16~0.30m，
+    //             数量翻倍成"发光尘埃群"，升降漂移幅度也随体型减半） ----------
     const bellMat = new THREE.MeshStandardMaterial({
       color: 0x2a4a52,
       emissive: 0x3a7a8c,
       emissiveIntensity: 0.9,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.5,
       roughness: 0.3,
       side: THREE.DoubleSide,
     });
     const glowTex = particleSprite();
     const { p: abyssC } = cave.frameAt(0, (abyssT.t0 + abyssT.t1) / 2);
-    for (let i = 0; i < q.jellies; i++) {
+    const jellyCount = q.jellies * 2;
+    for (let i = 0; i < jellyCount; i++) {
       const g = new THREE.Group();
-      const bell = new THREE.Mesh(new THREE.SphereGeometry(0.5, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.55), bellMat.clone());
+      const bell = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), bellMat.clone());
       g.add(bell);
-      // 触手
-      for (let k = 0; k < 5; k++) {
+      // 触手：小水螅水母的触手短而细
+      for (let k = 0; k < 4; k++) {
         const tent = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.008, 0.016, 1.6 + Math.random(), 4),
+          new THREE.CylinderGeometry(0.008, 0.016, 1.1 + Math.random() * 0.7, 4),
           new THREE.MeshStandardMaterial({
             color: 0x2a4a52,
             emissive: 0x2a6a7c,
@@ -190,7 +240,7 @@ export class Ecology {
             opacity: 0.4,
           }),
         );
-        tent.position.set(Math.sin(k * 1.26) * 0.28, -0.9, Math.cos(k * 1.26) * 0.28);
+        tent.position.set(Math.sin(k * 1.57) * 0.26, -0.7, Math.cos(k * 1.57) * 0.26);
         g.add(tent);
       }
       const glow = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -201,24 +251,24 @@ export class Ecology {
         depthWrite: false,
         blending: THREE.AdditiveBlending,
       }));
-      glow.scale.setScalar(2.4);
+      glow.scale.setScalar(2.2);
       g.add(glow);
       const base = abyssC.clone().add(new THREE.Vector3(
-        (Math.random() - 0.5) * 22,
-        (Math.random() - 0.3) * 12,
-        (Math.random() - 0.5) * 22,
+        (Math.random() - 0.5) * 16,
+        (Math.random() - 0.35) * 10,
+        (Math.random() - 0.5) * 16,
       ));
-      // 出生点至少离大厅中轴 7m：装饰性生物不该出现在玩家行进路线上
+      // 出生点至少离大厅中轴 4.5m：小水母不挡路，但也别怼在泳道正中
       const dx = base.x - abyssC.x;
       const dz = base.z - abyssC.z;
       const dHoriz = Math.hypot(dx, dz);
-      if (dHoriz < 7) {
+      if (dHoriz < 4.5) {
         const push = dHoriz < 0.01 ? { x: 1, z: 0 } : { x: dx / dHoriz, z: dz / dHoriz };
-        base.x = abyssC.x + push.x * (7 + Math.random() * 3);
-        base.z = abyssC.z + push.z * (7 + Math.random() * 3);
+        base.x = abyssC.x + push.x * (4.5 + Math.random() * 3);
+        base.z = abyssC.z + push.z * (4.5 + Math.random() * 3);
       }
       g.position.copy(base);
-      const s = 0.6 + Math.random() * 1.1;
+      const s = 0.16 + Math.random() * 0.14;
       g.scale.setScalar(s);
       this.group.add(g);
       this.jellies.push({
@@ -228,6 +278,11 @@ export class Ecology {
         shrink: 0,
       });
     }
+
+    this.buildRemipedes(q, cave);
+    this.buildCrayfish(q, cave);
+    this.buildAmphipods(q, cave);
+    this.buildBats(cave);
 
     // ---------- 气泡帘（光之厅 + 深渊井口） ----------
     const ventDefs: [THREE.Vector3, number][] = [
@@ -258,6 +313,243 @@ export class Ecology {
       this.group.add(pts);
       this.vents.push({ pts, pos, base, h });
     }
+  }
+
+  // ---------- 桨足类（remipede）：卤跃层以下海源水体的标志物种（§3.9） ----------
+  // 真实个体 2~4cm，游戏内放大到 ~30cm 保证黑水可读性（放大系数已在 WORKFLOW §3.9 注明）
+  private buildRemipedes(q: QualityProfile, cave: Cave): void {
+    const count = q.tier === 'mobile' ? 8 : 18;
+    const wr = cave.zoneRange('wreck');
+    const ar = cave.zoneRange('abyss');
+    for (let i = 0; i < count; i++) {
+      // 60% 沉船峡 / 40% 深渊边缘
+      const zr = i % 5 < 3 ? wr : ar;
+      const t = zr.t0 + (0.15 + Math.random() * 0.7) * (zr.t1 - zr.t0);
+      const { p: c } = cave.frameAt(0, t);
+      const r = cave.radiusAt(t);
+      const home = c.clone().add(new THREE.Vector3(
+        (Math.random() - 0.5) * r * 0.9,
+        (Math.random() - 0.4) * r * 0.6,
+        (Math.random() - 0.5) * r * 0.9,
+      ));
+      this.remis.push({
+        pos: home.clone(),
+        home,
+        phase: Math.random() * Math.PI * 2,
+        speed: 0.55 + Math.random() * 0.4,
+      });
+    }
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xdcd6c8,
+      roughness: 0.55,
+      emissive: 0x18140f,
+    });
+    this.remiMesh = new THREE.InstancedMesh(this.remipedeGeometry(), mat, count);
+    this.remiMesh.frustumCulled = false;
+    this.group.add(this.remiMesh);
+  }
+
+  /** 细长分节泳体 + 侧桨毛缘 + 头触角（沿 +Z 朝前） */
+  private remipedeGeometry(): THREE.BufferGeometry {
+    const parts: THREE.BufferGeometry[] = [];
+    const body = new THREE.CylinderGeometry(0.014, 0.006, 0.3, 7, 8);
+    body.rotateX(Math.PI / 2);
+    parts.push(body);
+    // 侧桨（swimmerets）：一排横向薄板，游泳时像船桨
+    for (let i = 0; i < 9; i++) {
+      const paddle = new THREE.BoxGeometry(0.085 - i * 0.004, 0.003, 0.014);
+      paddle.translate(0, 0, 0.11 - i * 0.028);
+      parts.push(paddle);
+    }
+    for (const sx of [-1, 1]) {
+      const ant = new THREE.CylinderGeometry(0.0016, 0.0016, 0.1, 3);
+      ant.rotateX(Math.PI / 2);
+      ant.rotateY(sx * 0.5);
+      ant.translate(sx * 0.012, 0, 0.18);
+      parts.push(ant);
+    }
+    return mergeGeometries(parts)!;
+  }
+
+  // ---------- 盲螯虾（Creaseria 属型）：淡水层底栖，苍白无色素（§3.9） ----------
+  private buildCrayfish(q: QualityProfile, cave: Cave): void {
+    const spots: ['hall' | 'collapse', number][] = q.tier === 'mobile'
+      ? [['hall', 0.3], ['hall', 0.6], ['collapse', 0.5]]
+      : [['hall', 0.25], ['hall', 0.45], ['hall', 0.68], ['collapse', 0.35], ['collapse', 0.55], ['collapse', 0.75]];
+    // 洞底高度用一次性向下射线求真实壁面（管壁噪声只向外凸、底部还有沉积平坦化，
+    // 固定比例会把 16cm 的小生物埋进地板或悬空——M4-L4 踩坑）
+    const rc = new THREE.Raycaster();
+    for (const [zn, frac] of spots) {
+      const zr = cave.zoneRange(zn);
+      const t = zr.t0 + (zr.t1 - zr.t0) * (frac + (Math.random() - 0.5) * 0.06);
+      const { p: c } = cave.frameAt(0, t);
+      const r = cave.radiusAt(t);
+      const hx = c.x + (Math.random() - 0.5) * r * 0.6;
+      const hz = c.z + (Math.random() - 0.5) * r * 0.6;
+      rc.set(new THREE.Vector3(hx, c.y, hz), new THREE.Vector3(0, -1, 0));
+      rc.far = r * 1.6;
+      const hit = rc.intersectObject(cave.group, true)[0];
+      const home = new THREE.Vector3(hx, hit ? hit.point.y + 0.015 : c.y - r * 0.85, hz);
+      this.crays.push({
+        pos: home.clone(),
+        home,
+        yaw: Math.random() * Math.PI * 2,
+        phase: Math.random() * 10,
+        dart: new THREE.Vector3(),
+        cool: 0,
+      });
+    }
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xe6ddcd,
+      roughness: 0.6,
+      emissive: 0x161210,
+    });
+    this.crayMesh = new THREE.InstancedMesh(this.crayfishGeometry(), mat, this.crays.length);
+    this.crayMesh.frustumCulled = false;
+    this.group.add(this.crayMesh);
+  }
+
+  /** 头胸甲 + 腹节 + 尾扇 + 双螯 + 步足 + 长触角（沿 +Z 朝前，贴地） */
+  private crayfishGeometry(): THREE.BufferGeometry {
+    const parts: THREE.BufferGeometry[] = [];
+    const carapace = new THREE.CapsuleGeometry(0.02, 0.045, 3, 8);
+    carapace.rotateX(Math.PI / 2);
+    carapace.translate(0, 0.018, 0.02);
+    parts.push(carapace);
+    const abdomen = new THREE.CylinderGeometry(0.017, 0.009, 0.06, 7);
+    abdomen.rotateX(Math.PI / 2 + 0.22);
+    abdomen.translate(0, 0.016, -0.05);
+    parts.push(abdomen);
+    const fan = new THREE.ConeGeometry(0.02, 0.04, 6);
+    fan.rotateX(Math.PI / 2);
+    fan.scale(1, 0.3, 1);
+    fan.translate(0, 0.01, -0.09);
+    parts.push(fan);
+    for (const sx of [-1, 1]) {
+      const claw = new THREE.CapsuleGeometry(0.009, 0.05, 3, 6);
+      claw.rotateX(Math.PI / 2);
+      claw.rotateY(sx * 0.35);
+      claw.translate(sx * 0.022, 0.012, 0.075);
+      parts.push(claw);
+      const ant = new THREE.CylinderGeometry(0.0015, 0.0015, 0.13, 3);
+      ant.rotateX(Math.PI / 2);
+      ant.rotateY(sx * 0.75);
+      ant.translate(sx * 0.012, 0.024, 0.1);
+      parts.push(ant);
+      for (let li = 0; li < 3; li++) {
+        const leg = new THREE.CylinderGeometry(0.0022, 0.0016, 0.045, 3);
+        leg.rotateZ(sx * 1.15);
+        leg.translate(sx * 0.026, 0.006, 0.02 - li * 0.022);
+        parts.push(leg);
+      }
+    }
+    return mergeGeometries(parts)!;
+  }
+
+  // ---------- 端足类微群：回廊壁面附近的白色微尘游动点（淡水层微型甲壳类，§3.9） ----------
+  private buildAmphipods(q: QualityProfile, cave: Cave): void {
+    const n = q.tier === 'mobile' ? 60 : 140;
+    this.amphiBase = new Float32Array(n * 3);
+    this.amphiPhase = new Float32Array(n);
+    const gr = cave.zoneRange('gallery');
+    const dir = new THREE.Vector3();
+    for (let i = 0; i < n; i++) {
+      const t = gr.t0 + Math.random() * (gr.t1 - gr.t0);
+      const { p: c } = cave.frameAt(0, t);
+      const r = cave.radiusAt(t);
+      dir.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+      const rr = r * (0.55 + Math.random() * 0.3);
+      this.amphiBase[i * 3] = c.x + dir.x * rr;
+      this.amphiBase[i * 3 + 1] = c.y + dir.y * rr;
+      this.amphiBase[i * 3 + 2] = c.z + dir.z * rr;
+      this.amphiPhase[i] = Math.random() * Math.PI * 2;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(this.amphiBase.slice(), 3));
+    const mat = new THREE.PointsMaterial({
+      map: particleSprite(),
+      color: 0xcfd8cc,
+      size: 0.03,
+      transparent: true,
+      opacity: 0.55,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      sizeAttenuation: true,
+    });
+    this.amphi = new THREE.Points(geo, mat);
+    this.group.add(this.amphi);
+  }
+
+  // ---------- 蝙蝠群（支线C 气穴）：洞顶倒挂，玩家出水/贴近水面惊起盘旋（§3.9 洞口段生态） ----------
+  private buildBats(cave: Cave): void {
+    this.batCenter.copy(cave.batChamberTop);
+    this.batWaterY = cave.batWaterY;
+    const c = this.batCenter;
+    const mat = new THREE.MeshStandardMaterial({ color: 0x120e0a, roughness: 0.95 });
+    const geo = new THREE.ConeGeometry(0.05, 0.17, 5);
+    const mesh = new THREE.InstancedMesh(geo, mat, 30);
+    mesh.frustumCulled = false;
+    // 栖位贴在气室岩石穹顶内侧（Landmarks.buildBatChamber 的椭球壳：中心 c+(0,-0.7,0)，
+    // 水平半径 4.3、竖直 2.67，内缩 0.84 保证不穿壳）
+    const m = new THREE.Matrix4();
+    const dir = new THREE.Vector3();
+    const qFlip = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI, 0, 0));
+    for (let i = 0; i < 30; i++) {
+      dir.set(Math.sin(i * 12.9) * 0.8, 0.55 + Math.abs(Math.sin(i * 7.7)) * 0.45, Math.cos(i * 5.3) * 0.8).normalize();
+      const posv = new THREE.Vector3(
+        c.x + dir.x * 4.3 * 0.84,
+        c.y - 0.7 + dir.y * 2.67 * 0.84,
+        c.z + dir.z * 4.3 * 0.84,
+      );
+      m.compose(posv, qFlip, new THREE.Vector3(1, 1 + Math.abs(Math.sin(i * 3.1)) * 0.4, 1));
+      mesh.setMatrixAt(i, m);
+      this.batRoost.push(m.clone());
+      this.batHome.push(posv.clone());
+      this.batPos.push(posv.clone());
+    }
+    this.batMesh = mesh;
+    this.group.add(mesh);
+  }
+
+  /** Game 逐帧消费的一次性事件：蝙蝠群刚被惊起（触发扑翼音频与字幕） */
+  consumeBatStartle(): boolean {
+    const v = this.batStartled;
+    this.batStartled = false;
+    return v;
+  }
+
+  /** 调试：取某生态组第 i 个个体的当前世界坐标（__dd 取景/验证用） */
+  probe(
+    name: 'remipedes' | 'crayfish' | 'jellies' | 'bats' | 'blind' | 'cruisers', i = 0,
+  ): [number, number, number] | null {
+    const v =
+      name === 'remipedes' ? this.remis[i]?.pos :
+      name === 'crayfish' ? this.crays[i]?.pos :
+      name === 'jellies' ? this.jellies[i]?.group.position :
+      name === 'bats' ? this.batPos[i] :
+      name === 'blind' ? this.blind[i]?.pos :
+      this.cruisers[i]?.pos;
+    return v ? [v.x, v.y, v.z] : null;
+  }
+
+  /** 调试：取离给定点最近的个体坐标（玩家站轴线上取景用——teleport 离轴会被物理拉回） */
+  probeNearest(
+    name: Parameters<Ecology['probe']>[0], pos: THREE.Vector3,
+  ): [number, number, number] | null {
+    const list: THREE.Vector3[] =
+      name === 'remipedes' ? this.remis.map((r) => r.pos) :
+      name === 'crayfish' ? this.crays.map((r) => r.pos) :
+      name === 'jellies' ? this.jellies.map((j) => j.group.position) :
+      name === 'bats' ? this.batPos :
+      name === 'blind' ? this.blind.map((b) => b.pos) :
+      this.cruisers.map((c) => c.pos);
+    let best: THREE.Vector3 | null = null;
+    let bd = Infinity;
+    for (const v of list) {
+      const d = v.distanceToSquared(pos);
+      if (d < bd) { bd = d; best = v; }
+    }
+    return best ? [best.x, best.y, best.z] : null;
   }
 
   /** 模型解码完成 → 建三种鱼的 InstancedMesh（银汉鱼群 / 盲鱼 / 巡游大鱼） */
@@ -300,18 +592,28 @@ export class Ecology {
     this.group.add(this.cruiserMesh);
   }
 
-  /** 调试：鱼资产来源与规模（无头回归断言用） */
-  fishInfo(): { source: string; school: number; blind: number; cruisers: number } {
+  /** 调试：鱼资产来源与各生态组规模（无头回归断言用） */
+  fishInfo(): {
+    source: string; school: number; blind: number; cruisers: number;
+    remipedes: number; crayfish: number; jellies: number; bats: number;
+  } {
     return {
       source: this.fishSource,
       school: this.fish.length,
       blind: this.blind.length,
       cruisers: this.cruisers.length,
+      remipedes: this.remis.length,
+      crayfish: this.crays.length,
+      jellies: this.jellies.length,
+      bats: this.batPos.length,
     };
   }
 
   /** 调试：生态分组可见性开关。group 省略时切换整个生态层。返回切换后的状态表。 */
-  toggle(name?: 'fish' | 'blind' | 'cruisers' | 'plankton' | 'jellies' | 'vents' | 'all'): Record<string, boolean> {
+  toggle(
+    name?: 'fish' | 'blind' | 'cruisers' | 'plankton' | 'jellies' | 'vents'
+      | 'remipedes' | 'crayfish' | 'amphipods' | 'bats' | 'all',
+  ): Record<string, boolean> {
     const flip = (o: THREE.Object3D | null): void => { if (o) o.visible = !o.visible; };
     switch (name) {
       case 'fish': flip(this.fishMesh); break;
@@ -320,6 +622,10 @@ export class Ecology {
       case 'plankton': flip(this.plankton); break;
       case 'jellies': for (const j of this.jellies) flip(j.group); break;
       case 'vents': for (const v of this.vents) flip(v.pts); break;
+      case 'remipedes': flip(this.remiMesh); break;
+      case 'crayfish': flip(this.crayMesh); break;
+      case 'amphipods': flip(this.amphi); break;
+      case 'bats': flip(this.batMesh); break;
       default: flip(this.group);
     }
     return {
@@ -330,6 +636,10 @@ export class Ecology {
       plankton: this.plankton.visible,
       jellies: this.jellies[0]?.group.visible ?? false,
       vents: this.vents[0]?.pts.visible ?? false,
+      remipedes: this.remiMesh?.visible ?? false,
+      crayfish: this.crayMesh?.visible ?? false,
+      amphipods: this.amphi?.visible ?? false,
+      bats: this.batMesh?.visible ?? false,
     };
   }
 
@@ -340,6 +650,10 @@ export class Ecology {
     this.updatePlankton(dt, time, playerPos, playerSpeed);
     this.updateJellies(dt, time, playerPos);
     this.updateVents(dt);
+    this.updateRemipedes(dt, time, playerPos);
+    this.updateCrayfish(dt, time, playerPos);
+    this.updateAmphipods(time, playerPos);
+    this.updateBats(dt, time, playerPos);
   }
 
   private updateFish(dt: number, time: number, playerPos: THREE.Vector3): void {
@@ -456,12 +770,12 @@ export class Ecology {
       j.phase += dt * 0.9;
       const pulse = Math.sin(j.phase);
       j.bell.scale.set(1 + pulse * 0.08, 1 - pulse * 0.14, 1 + pulse * 0.08);
-      // 靠近 → 收缩闪光 + 避让（近距离推力更强，避免怼到镜头前）
+      // 靠近 → 收缩闪光 + 避让（小水母感知半径也小）
       const d = j.group.position.distanceTo(playerPos);
-      if (d < 4.5) {
+      if (d < 2.4) {
         j.shrink = Math.min(1, j.shrink + dt * 3);
         const away = j.group.position.clone().sub(playerPos).normalize();
-        j.drift.addScaledVector(away, dt * (0.8 + (4.5 - d) * 1.6));
+        j.drift.addScaledVector(away, dt * (0.6 + (2.4 - d) * 1.4));
       } else {
         j.shrink = Math.max(0, j.shrink - dt * 0.5);
       }
@@ -470,12 +784,12 @@ export class Ecology {
       mat.emissiveIntensity = 0.7 + pulse * 0.3 + j.shrink * 2.2;
       (j.glow.material as THREE.SpriteMaterial).opacity = 0.35 + pulse * 0.12 + j.shrink * 0.45;
       j.group.scale.setScalar(j.group.scale.x * (1 - j.shrink * 0.12 * dt * 3));
-      // 缓慢升降漂移
+      // 缓慢升降漂移（小水母幅度更小：随波逐流的"发光尘埃"）
       j.group.position.copy(j.base)
         .add(new THREE.Vector3(
-          Math.sin(time * 0.11 + j.phase) * 1.6,
-          Math.sin(time * 0.07 + j.phase * 1.7) * 2.6 + pulse * 0.12,
-          Math.cos(time * 0.09 + j.phase) * 1.6,
+          Math.sin(time * 0.11 + j.phase) * 1.0,
+          Math.sin(time * 0.07 + j.phase * 1.7) * 1.8 + pulse * 0.08,
+          Math.cos(time * 0.09 + j.phase) * 1.0,
         ))
         .add(j.drift);
     }
@@ -494,6 +808,155 @@ export class Ecology {
         }
       }
       (v.pts.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+    }
+  }
+
+  /** 桨足类：腹面朝上缓慢巡游（remipede 的真实泳姿），盲——不理会玩家，只在贴脸时轻微让开 */
+  private updateRemipedes(dt: number, time: number, playerPos: THREE.Vector3): void {
+    if (!this.remiMesh) return;
+    const target = new THREE.Vector3();
+    for (let i = 0; i < this.remis.length; i++) {
+      const rm = this.remis[i];
+      rm.phase += dt * rm.speed * 0.3;
+      target.set(
+        rm.home.x + Math.cos(rm.phase) * 1.3,
+        rm.home.y + Math.sin(rm.phase * 1.6 + i) * 0.5,
+        rm.home.z + Math.sin(rm.phase) * 1.3,
+      );
+      const dp = rm.pos.distanceTo(playerPos);
+      if (dp < 0.9) target.addScaledVector(rm.pos.clone().sub(playerPos).normalize(), 1.2);
+      const dir = target.clone().sub(rm.pos);
+      rm.pos.addScaledVector(dir, Math.min(1, dt * 0.5));
+      this.dummy.position.copy(rm.pos);
+      this.dummy.lookAt(target.add(dir));
+      // 腹面朝上（滚转 π）+ 体侧起伏泳姿
+      this.dummy.rotateZ(Math.PI + Math.sin(time * 5 + i * 2.4) * 0.16);
+      this.dummy.rotateX(Math.sin(time * 3.4 + i) * 0.1);
+      this.dummy.scale.setScalar(1);
+      this.dummy.updateMatrix();
+      this.remiMesh.setMatrixAt(i, this.dummy.matrix);
+    }
+    this.remiMesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /** 盲螯虾：底栖缓爬；玩家 <1.5m 时尾弹后逃（真实螯虾的逃逸反射），几秒后再缓慢爬回家域 */
+  private updateCrayfish(dt: number, time: number, playerPos: THREE.Vector3): void {
+    if (!this.crayMesh) return;
+    const target = new THREE.Vector3();
+    const euler = new THREE.Euler();
+    for (let i = 0; i < this.crays.length; i++) {
+      const cf = this.crays[i];
+      cf.cool = Math.max(0, cf.cool - dt);
+      const dp = cf.pos.distanceTo(playerPos);
+      if (dp < 1.5 && cf.cool <= 0) {
+        // 尾弹：背离玩家的水平爆发（面朝威胁、尾部先行）
+        const away = cf.pos.clone().sub(playerPos);
+        away.y = 0;
+        away.normalize();
+        cf.dart.addScaledVector(away, 2.6);
+        cf.dart.y = 0.35; // 弹起离底一点
+        cf.cool = 4;
+        cf.yaw = Math.atan2(playerPos.x - cf.pos.x, playerPos.z - cf.pos.z);
+      }
+      cf.dart.multiplyScalar(Math.exp(-3.2 * dt));
+      cf.pos.addScaledVector(cf.dart, dt);
+      // 缓爬：家域内极慢兜圈
+      target.set(
+        cf.home.x + Math.sin(time * 0.07 + cf.phase) * 0.35,
+        cf.home.y,
+        cf.home.z + Math.cos(time * 0.05 + cf.phase) * 0.35,
+      );
+      cf.pos.addScaledVector(target.sub(cf.pos), Math.min(1, dt * (cf.cool > 0 ? 0.05 : 0.3)));
+      if (cf.cool <= 0) {
+        // 面向爬行方向缓慢转体
+        const wantYaw = Math.atan2(
+          Math.cos(time * 0.07 + cf.phase), -Math.sin(time * 0.05 + cf.phase),
+        ) * 0.2 + cf.phase;
+        let dy = wantYaw - cf.yaw;
+        dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+        cf.yaw += dy * Math.min(1, dt * 0.4);
+      }
+      euler.set(0, cf.yaw, 0);
+      this.dummy.position.copy(cf.pos);
+      this.dummy.quaternion.setFromEuler(euler);
+      this.dummy.scale.setScalar(1);
+      this.dummy.updateMatrix();
+      this.crayMesh.setMatrixAt(i, this.dummy.matrix);
+    }
+    this.crayMesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /** 端足类微群：只在玩家身处回廊附近时做微幅游动（省一遍无效遍历） */
+  private updateAmphipods(time: number, playerPos: THREE.Vector3): void {
+    if (!this.amphi || !this.amphi.visible) return;
+    const attr = this.amphi.geometry.attributes.position as THREE.BufferAttribute;
+    const arr = attr.array as Float32Array;
+    // 粗判：离第一颗微尘 60m 外就不必逐点更新
+    const dx = arr[0] - playerPos.x, dy = arr[1] - playerPos.y, dz = arr[2] - playerPos.z;
+    if (dx * dx + dy * dy + dz * dz > 3600) return;
+    const n = this.amphiPhase.length;
+    for (let i = 0; i < n; i++) {
+      const ph = this.amphiPhase[i];
+      arr[i * 3] = this.amphiBase[i * 3] + Math.sin(time * 1.3 + ph) * 0.06;
+      arr[i * 3 + 1] = this.amphiBase[i * 3 + 1] + Math.sin(time * 0.9 + ph * 2.1) * 0.05;
+      arr[i * 3 + 2] = this.amphiBase[i * 3 + 2] + Math.cos(time * 1.1 + ph) * 0.06;
+    }
+    attr.needsUpdate = true;
+  }
+
+  /** 蝙蝠群状态机：roost（零开销静止）→ fly（受惊盘旋 9s）→ return（归巢）→ roost（45s 冷却） */
+  private updateBats(dt: number, time: number, playerPos: THREE.Vector3): void {
+    if (!this.batMesh) return;
+    const c = this.batCenter;
+    if (this.batState === 'roost') {
+      if (
+        time > this.batCooldown &&
+        playerPos.y > this.batWaterY - 1.4 &&
+        Math.hypot(playerPos.x - c.x, playerPos.z - c.z) < 3.2 &&
+        Math.abs(playerPos.y - c.y) < 5
+      ) {
+        this.batState = 'fly';
+        this.batTimer = 0;
+        this.batStartled = true;
+      }
+      return;
+    }
+    this.batTimer += dt;
+    const target = new THREE.Vector3();
+    for (let i = 0; i < this.batPos.length; i++) {
+      const ang = time * (2.0 + (i % 5) * 0.3) + i * 0.66;
+      if (this.batState === 'fly') {
+        const r = 1.1 + (i % 7) * 0.24;
+        target.set(
+          c.x + Math.cos(ang) * r,
+          this.batWaterY + 1.2 + Math.sin(time * 1.6 + i * 1.3) * 0.7,
+          c.z + Math.sin(ang) * r,
+        );
+      } else {
+        target.copy(this.batHome[i]);
+      }
+      const k = Math.min(1, dt * (this.batState === 'fly' && this.batTimer < 1 ? 2.4 : 3.6));
+      this.batPos[i].lerp(target, k);
+      this.dummy.position.copy(this.batPos[i]);
+      // 朝盘旋切线方向 + 高频扑翼脉动
+      this.dummy.lookAt(this.batPos[i].x - Math.sin(ang), this.batPos[i].y, this.batPos[i].z + Math.cos(ang));
+      const flap = 1 + Math.sin(time * 26 + i * 2.1) * 0.45;
+      this.dummy.scale.set(flap, 0.7, 1.1);
+      this.dummy.updateMatrix();
+      this.batMesh.setMatrixAt(i, this.dummy.matrix);
+    }
+    this.batMesh.instanceMatrix.needsUpdate = true;
+    if (this.batState === 'fly' && this.batTimer > 9) {
+      this.batState = 'return';
+      this.batTimer = 0;
+    } else if (this.batState === 'return' && this.batTimer > 2.4) {
+      this.batState = 'roost';
+      this.batCooldown = time + 45;
+      for (let i = 0; i < this.batRoost.length; i++) {
+        this.batMesh.setMatrixAt(i, this.batRoost[i]);
+        this.batPos[i].copy(this.batHome[i]);
+      }
+      this.batMesh.instanceMatrix.needsUpdate = true;
     }
   }
 }
