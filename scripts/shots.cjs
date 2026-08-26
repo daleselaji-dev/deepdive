@@ -16,8 +16,10 @@ const CHROME = ['/usr/local/bin/google-chrome', '/usr/bin/google-chrome-stable',
 /** [名称, 区名, 区内比例, yaw, pitch, 额外等待ms] —— yaw/pitch 为弧度 */
 const SPOTS = [
   ['title', null, 0, 0, 0, 2600],
-  ['z1-shaft-lookup', 'shaft', 0.35, -2.2, 1.15, 3400],
-  ['z1-shaft-side', 'shaft', 0.55, -0.6, 0.4, 900],
+  // POS 型：[名称, 'POS', [区名, 区内比例], [相机x,y,z], [注视x,y,z], 等待ms]
+  // 竖井机位放进井筒净空柱内（M4-L7 挖井+领圈石后，旧机位会被岩石挡住太阳窗）
+  ['z1-shaft-lookup', 'POS', ['shaft', 0.3], [0.5, -6.5, 2.1], [1.2, 4, 0.9], 3400],
+  ['z1-shaft-side', 'POS', ['shaft', 0.3], [-3.5, -9.5, -1.9], [4.5, -2, 6.1], 1400],
   ['z2-gallery', 'gallery', 0.5, -1.1, 0.05, 900],
   ['z3-throat', 'throat', 0.5, -1.4, 0, 900],
   // MARK 型：[名称, 'MARK', [区名, 区内比例], 地标名, y偏移, 等待ms]
@@ -102,6 +104,46 @@ async function main() {
       }
       await page.evaluate(() => window.__dd.silt(0));
       await new Promise((r) => setTimeout(r, 450));
+    } else if (zone === 'POS') {
+      // 跳区后把相机放到绝对坐标并注视世界点（写字板关闭后再复位一次防物理漂移）
+      const [z2, f2] = frac;
+      const posArr = yaw;
+      const lookArr = pitch;
+      await page.evaluate(
+        (za, fa, p, l) => {
+          const dd = window.__dd;
+          const title = document.getElementById('title');
+          if (title && !title.classList.contains('hidden')) document.getElementById('start').click();
+          dd.zone(za, fa);
+          dd.move(p[0], p[1], p[2]);
+          dd.lookWorld(l[0], l[1], l[2]);
+          dd.silt(0);
+        },
+        z2, f2, posArr, lookArr,
+      );
+      await new Promise((r) => setTimeout(r, wait));
+      for (let k = 0; k < 3; k++) {
+        const open = await page.evaluate(() => {
+          const s = document.getElementById('slate');
+          if (s && !s.classList.contains('hidden')) {
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'x' }));
+            return true;
+          }
+          return false;
+        });
+        if (!open) break;
+        await new Promise((r) => setTimeout(r, 550));
+      }
+      await page.evaluate(
+        (p, l) => {
+          const dd = window.__dd;
+          dd.move(p[0], p[1], p[2]);
+          dd.lookWorld(l[0], l[1], l[2]);
+          dd.silt(0);
+        },
+        posArr, lookArr,
+      );
+      await new Promise((r) => setTimeout(r, 500));
     } else if (zone === 'SURFACE') {
       // 水面英雄镜头：破水 → 看向支援船与晨光（必须从池内一侧接近，池外会穿崖壁）
       await page.evaluate(() => {

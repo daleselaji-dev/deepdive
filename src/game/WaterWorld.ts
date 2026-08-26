@@ -44,6 +44,8 @@ void main() {
   float a = edge * grad * tail * noise * uIntensity;
   a *= 1.0 - smoothstep(-0.15, 0.05, vWorldPos.y); // 光锥不许捅出水面
   a *= 1.0 - smoothstep(0.1, 0.6, cameraPosition.y); // 水上视角不叠画水下光锥
+  // 轴向衰减：光幕side-on最亮，沿轴仰望时整簇叠加会轰成白幕（散射相位近似，M4-L7）
+  a *= 1.0 - pow(abs(viewDir.y), 3.0) * 0.85;
   gl_FragColor = vec4(uColor * a, a);
 }
 `;
@@ -73,27 +75,43 @@ void main() {
     sin(p.y * 1.1 + uTime * 0.8) * 0.22 + sin(p.y * 2.7 - uTime * 1.3) * 0.10 + sin(p.x * 1.9 - uTime * 0.7) * 0.08
   ));
   if (!gl_FrontFacing) {
-    // ---- 水下仰视：Snell 窗（窗内=明亮天空+太阳爆点，窗外=全反射暗镜面） ----
+    // ---- 水下仰视：Snell 窗——水上 180° 半球被压进 ~97° 光锥 ----
+    // 结构（从窗心到窗外）：天顶亮天空 → 靠太阳暖白 → 临界角处压缩的丛林/崖壁地平线暗环 → 全反射暗镜面
     vec3 vd = normalize(vWorldPos - cameraPosition);
     float up = dot(vd, vec3(0.0, 1.0, 0.0));
-    // 波动让窗口边缘呼吸、破碎
-    float wob = (n.x + n.z) * 0.55;
-    float snell = smoothstep(0.30, 0.74, up + wob);
-    // 窗内：折射后的天空——朝太阳方向更亮更暖
-    vec3 vr = normalize(vd + n * 0.5);
+    // 三频波动：窗缘破碎呼吸（低频大涌 + 中频摆 + 高频细纹）
+    float wob = (n.x + n.z) * 0.45
+      + sin(p.x * 5.3 + uTime * 1.9) * sin(p.y * 4.7 - uTime * 1.5) * 0.055;
+    float win = up + wob;
+    float snell = smoothstep(0.31, 0.58, win);
+    // 地平线暗环：临界角附近是压缩的水上低角度景物（晨光里的丛林树冠+崖壁）；
+    // 用纯 up（无波动）限制在窗缘——否则波动会把暗环拽进窗心，读作脏水渍（M4-L7）
+    float horizon = smoothstep(0.29, 0.45, win) * (1.0 - smoothstep(0.45, 0.72, win));
+    horizon *= 1.0 - smoothstep(0.50, 0.60, up);
+    // 折射视线与太阳
+    vec3 vr = normalize(vd + n * 0.42);
     float toSun = max(0.0, dot(vr, uSunDir));
-    float sunDisk = pow(toSun, 180.0) * 3.2 + pow(toSun, 40.0) * 1.6;
-    float sunHalo = pow(toSun, 5.0);
-    vec3 skyIn = mix(vec3(0.10, 0.34, 0.40), vec3(0.72, 0.98, 0.92), sunHalo * 0.85)
-      + vec3(0.9, 0.8, 0.5) * pow(toSun, 12.0) * 0.55;
+    // 窗内天空：窗心青绿 → 靠太阳暖亮（峰值收敛，白爆只留给太阳盘）
+    vec3 skyIn = mix(vec3(0.15, 0.42, 0.46), vec3(0.62, 0.84, 0.80), pow(toSun, 3.0) * 0.7);
+    // 太阳盘：小而炽热 + 紧凑光晕（画面里唯一允许过曝的位置；晕染过大会把半个窗轰成白幕）
+    // 光晕用波纹调制留出纹理，不再饱和成整片白纸
+    float sunDisk = pow(toSun, 260.0) * 6.5;
+    float glowTex2 = 0.82 + 0.18 * sin(p.x * 3.1 + uTime * 1.1) * sin(p.y * 2.7 - uTime * 0.9);
+    float sunGlow = (pow(toSun, 90.0) * 1.0 + pow(toSun, 16.0) * 0.14) * glowTex2;
+    // 地平线剪影色：暗绿棕，朝太阳方向透出一线金边（晨光穿过树冠）
+    vec3 rimCol = mix(vec3(0.035, 0.085, 0.060), vec3(0.34, 0.26, 0.10), pow(toSun, 6.0));
     // 窗外：全反射暗镜面（不是死黑），带微弱波光
     vec3 mirror = vec3(0.030, 0.075, 0.080)
       + vec3(0.05, 0.12, 0.12) * pow(max(0.0, n.x * 2.2 + n.z * 1.8), 2.0);
-    // 波峰亮线（sparkle）
-    float sparkle = pow(max(0.0, sin(p.x * 13.0 + uTime * 1.7) * sin(p.y * 11.0 - uTime * 1.3)), 10.0)
-      * pow(max(0.0, sin((p.x - p.y) * 7.0 + uTime * 0.9)), 4.0);
-    vec3 col = mix(mirror, skyIn, snell)
-      + vec3(1.0, 0.96, 0.80) * sunDisk * smoothstep(0.1, 0.5, snell)
+    // 波峰亮线（sparkle）：低频游走斑块掩码打散正弦格点——纯 sin 乘积会铺出规则点阵；
+    // 注意 patch 是 GLSL 保留字不可用作变量名（M4-L7 踩坑：编译失败=整面水消失透出天空球）
+    float sparkMask = pow(max(0.0, sin(p.x * 0.53 + uTime * 0.6) * sin(p.y * 0.61 - uTime * 0.45) + 0.15), 3.0);
+    float sparkle = pow(max(0.0, sin(p.x * 13.7 + uTime * 1.7) * sin(p.y * 10.3 - uTime * 1.3)), 10.0)
+      * pow(max(0.0, sin((p.x - p.y * 1.31) * 6.7 + uTime * 0.9)), 4.0) * sparkMask;
+    vec3 winCol = mix(skyIn, rimCol, horizon);
+    vec3 col = mix(mirror, winCol, snell)
+      + vec3(1.0, 0.93, 0.72) * (sunDisk + sunGlow) * smoothstep(0.15, 0.5, snell)
+      + vec3(0.12, 0.30, 0.42) * horizon * 0.55 // 临界角色散彩边（青蓝）
       + vec3(0.55, 0.72, 0.66) * sparkle * (0.10 + snell * 0.45);
     gl_FragColor = vec4(col, 0.985);
   } else {
@@ -133,6 +151,11 @@ export class WaterWorld {
   private causticTimer = 0;
   private rayMat: THREE.MeshBasicMaterial;
   private rays: THREE.Mesh[] = [];
+  // 光之厅光柱尘埃与光池（M4-L7）
+  private hallDust!: THREE.Points;
+  private hallDustBase!: Float32Array;
+  private hallDustH = 22;
+  private hallPool!: THREE.Mesh;
 
   constructor(q: QualityProfile, cave: Cave, scene: THREE.Scene) {
     scene.add(this.group);
@@ -149,7 +172,8 @@ export class WaterWorld {
       depthWrite: false,
       side: THREE.DoubleSide,
     });
-    const water = new THREE.Mesh(new THREE.CircleGeometry(12.5, 56), this.waterMat);
+    // 半径必须盖满井内所有仰角（12.5 时侧视能越过盘边直接看到天空球与树锥剪影，M4-L7 踩坑）
+    const water = new THREE.Mesh(new THREE.CircleGeometry(34, 64), this.waterMat);
     water.rotation.x = -Math.PI / 2;
     water.position.set(cave.poolCenter.x, 0, cave.poolCenter.z);
     water.renderOrder = 4;
@@ -170,9 +194,18 @@ export class WaterWorld {
     this.group.add(sun);
 
     // ---------- 峭壁环 + 丛林剪影 + 垂根 ----------
+    // 独立克隆贴图设重复度：柱面 UV 一圈只铺一次会把纹理拉成 55m 宽的糊块（M4-L7）
+    const cliffMap = cave.rock.map!.clone();
+    cliffMap.wrapS = cliffMap.wrapT = THREE.RepeatWrapping;
+    cliffMap.repeat.set(6, 2);
+    cliffMap.needsUpdate = true;
+    const cliffNormal = cave.rock.normalMap!.clone();
+    cliffNormal.wrapS = cliffNormal.wrapT = THREE.RepeatWrapping;
+    cliffNormal.repeat.set(6, 2);
+    cliffNormal.needsUpdate = true;
     const cliffMat = new THREE.MeshStandardMaterial({
-      map: cave.rock.map,
-      normalMap: cave.rock.normalMap,
+      map: cliffMap,
+      normalMap: cliffNormal,
       normalScale: new THREE.Vector2(0.8, 0.8),
       color: 0x8d978c,
       roughness: 0.92,
@@ -283,19 +316,72 @@ export class WaterWorld {
       this.group.add(beam);
     }
 
-    // 光之厅裂隙束
+    // 光之厅裂隙束：主幕加宽 + 一根偏轴细束（单柱读作"手电"，双柱才读作"天窗"）。
+    // 整簇偏轴 ~3m：光柱与烛台同轴会互相遮掩，暗塔剪影立在发光光幕旁才是经典构图（M4-L7）
+    const glowTexRef = particleSprite();
     const crack = cave.crackPoint;
-    const beamH = 20;
-    const hb = mkBeam(0.9, 2.6, beamH, 0x8fd8c8, 0.5);
-    hb.position.set(crack.x, crack.y - beamH / 2 + 1.5, crack.z);
+    const bOffX = 2.6, bOffZ = -2.0;
+    const beamH = 22;
+    const hb = mkBeam(1.15, 3.4, beamH, 0x8fd8c8, 1.0);
+    hb.position.set(crack.x + bOffX, crack.y - beamH / 2 + 1.5, crack.z + bOffZ);
     this.group.add(hb);
+    const hb2 = mkBeam(0.4, 1.3, beamH - 3, 0xaee8d6, 0.75);
+    hb2.position.set(crack.x + bOffX + 1.6, crack.y - beamH / 2 + 0.8, crack.z + bOffZ - 1.1);
+    hb2.rotation.z = 0.06;
+    this.group.add(hb2);
+    // 光柱尘埃（海雪）：柱体内缓沉缓旋的微粒——体积感的点睛
+    {
+      const dustN = 150;
+      const pos = new Float32Array(dustN * 3);
+      this.hallDustBase = new Float32Array(dustN * 3);
+      for (let i = 0; i < dustN; i++) {
+        const dy = Math.random() * beamH;
+        const rr = (1.0 + (dy / beamH) * 2.2) * Math.sqrt(Math.random());
+        const aa = Math.random() * Math.PI * 2;
+        this.hallDustBase[i * 3] = Math.cos(aa) * rr;
+        this.hallDustBase[i * 3 + 1] = dy;
+        this.hallDustBase[i * 3 + 2] = Math.sin(aa) * rr;
+      }
+      pos.set(this.hallDustBase);
+      const dg = new THREE.BufferGeometry();
+      dg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      const dm = new THREE.PointsMaterial({
+        map: glowTexRef, size: 0.16, transparent: true, opacity: 0.62,
+        blending: THREE.AdditiveBlending, depthWrite: false, color: 0xd6f2e6, sizeAttenuation: true,
+      });
+      this.hallDust = new THREE.Points(dg, dm);
+      this.hallDust.position.set(crack.x + bOffX, crack.y - beamH + 1.5, crack.z + bOffZ);
+      this.hallDustH = beamH;
+      this.group.add(this.hallDust);
+    }
+    // 塔底光池：光束落地的柔和亮斑（加法径向渐变，随时间轻微呼吸），锚定真实厅底高度
+    {
+      const hr = cave.zoneRange('hall');
+      const { p: hallC } = cave.frameAt(0, (hr.t0 + hr.t1) / 2);
+      const hallFloorY = hallC.y - cave.radiusAt((hr.t0 + hr.t1) / 2) * 0.9;
+      this.hallPool = new THREE.Mesh(
+        new THREE.CircleGeometry(4.6, 36),
+        new THREE.MeshBasicMaterial({
+          map: glowTexRef, transparent: true, opacity: 0.30,
+          blending: THREE.AdditiveBlending, depthWrite: false, color: 0x9fe0cc,
+        }),
+      );
+      this.hallPool.rotation.x = -Math.PI / 2;
+      this.hallPool.position.set(crack.x + bOffX, hallFloorY + 0.35, crack.z + bOffZ);
+      this.group.add(this.hallPool);
+      // 光池反弹灯：从落光点向上托亮烛台下缘与厅底（塔不再是纯黑剪影）
+      const bounce = new THREE.PointLight(0x9fe0cc, 140, 24, 1.5);
+      bounce.position.set(crack.x + bOffX * 0.5, hallFloorY + 1.8, crack.z + bOffZ * 0.5);
+      cave.zoneLights.push(bounce);
+      this.group.add(bounce);
+    }
     // 裂隙口的冷光源（照亮光之厅中央）
     const crackLight = new THREE.PointLight(0x9fdbd2, 95, 40, 1.4);
     crackLight.position.set(crack.x, crack.y - 4, crack.z);
     cave.zoneLights.push(crackLight);
     this.group.add(crackLight);
     // 裂隙口光晕：让镂空处读作"燃烧的天窗"而非平面蓝块
-    const glowTex = particleSprite();
+    const glowTex = glowTexRef;
     for (const [scale, op] of [[7, 0.55], [14, 0.22]] as [number, number][]) {
       const halo = new THREE.Sprite(new THREE.SpriteMaterial({
         map: glowTex,
@@ -319,13 +405,16 @@ export class WaterWorld {
       depthWrite: false,
       side: THREE.DoubleSide,
     });
+    // 面片收进主光幕半径内（散布 ±4m 时会随机怼到标题/仰望机位贴脸成白幕，M4-L7 踩坑）
     for (let i = 0; i < q.godRays; i++) {
       const h = 10 + Math.random() * 7;
-      const plane = new THREE.Mesh(new THREE.PlaneGeometry(0.5 + Math.random() * 1.3, h), this.rayMat);
+      const rr = Math.sqrt(Math.random()) * 2.6;
+      const ra = Math.random() * Math.PI * 2;
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(0.4 + Math.random() * 0.9, h), this.rayMat);
       plane.position.set(
-        cave.poolCenter.x + (Math.random() - 0.5) * 8,
+        cave.poolCenter.x + Math.cos(ra) * rr,
         -h / 2 - 0.4 - Math.random() * 3, // 面片顶端压在水面以下
-        cave.poolCenter.z + (Math.random() - 0.5) * 8,
+        cave.poolCenter.z + Math.sin(ra) * rr,
       );
       plane.rotation.set((Math.random() - 0.5) * 0.22, Math.random() * Math.PI, (Math.random() - 0.5) * 0.16);
       this.rays.push(plane);
@@ -368,17 +457,19 @@ export class WaterWorld {
     // 船体：中段箱体 + 前后锥艏艉（浅吃水——小艇水下体量必须薄）
     const mid = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.6, 3.2), hullMat);
     mid.position.y = 0.04;
-    const bow = new THREE.Mesh(new THREE.ConeGeometry(0.85, 1.6, 4), hullMat);
+    // 艏锥用 10 段圆滑（4 段时水下仰望读成黑色大棱角楔块，M4-L7 踩坑）
+    const bow = new THREE.Mesh(new THREE.ConeGeometry(0.85, 1.6, 10), hullMat);
     bow.rotation.set(Math.PI / 2, 0, Math.PI / 4);
     bow.scale.set(1.0, 1, 0.38);
     bow.position.set(0, 0.02, -2.0);
     const stern = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.56, 0.5), darkMat);
     stern.position.set(0, 0.04, 1.8);
     // 圆滑船底（水下仰望的剪影主体：拉长扁椭球 + 尾舵鳍）——不能是方块
+    // 椭球放大到从正下方完全包住中段箱体投影，仰视剪影只剩流线型
     const bilgeMat = new THREE.MeshStandardMaterial({ color: 0x232e2a, roughness: 0.5, metalness: 0.15 });
-    const keel = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 14), bilgeMat);
-    keel.scale.set(0.84, 0.2, 2.1);
-    keel.position.y = -0.18;
+    const keel = new THREE.Mesh(new THREE.SphereGeometry(1, 24, 16), bilgeMat);
+    keel.scale.set(1.08, 0.26, 2.6);
+    keel.position.y = -0.16;
     const skeg = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.2, 0.7), bilgeMat);
     skeg.position.set(0, -0.4, 1.5);
     // 舷缘
@@ -450,6 +541,27 @@ export class WaterWorld {
     }
     // 太阳光微颤（水面折射感；幅度收敛避免闪烁不适）
     this.sunLight.intensity = 460 + Math.sin(time * 1.1) * 9 + Math.sin(time * 2.3) * 4;
+
+    // 光之厅光柱尘埃：缓沉 + 绕柱缓旋（海雪），光池呼吸
+    {
+      const attr = this.hallDust.geometry.attributes.position as THREE.BufferAttribute;
+      const arr = attr.array as Float32Array;
+      const H = this.hallDustH;
+      const n = arr.length / 3;
+      for (let i = 0; i < n; i++) {
+        const bx = this.hallDustBase[i * 3];
+        const by = this.hallDustBase[i * 3 + 1];
+        const bz = this.hallDustBase[i * 3 + 2];
+        // 每粒相位不同的下沉循环 + 微小水平摆
+        const y = ((by - time * 0.22 + i * 0.618) % H + H) % H;
+        const sway = Math.sin(time * 0.5 + i * 1.7) * 0.08;
+        arr[i * 3] = bx + sway;
+        arr[i * 3 + 1] = y;
+        arr[i * 3 + 2] = bz + Math.cos(time * 0.42 + i * 2.3) * 0.08;
+      }
+      attr.needsUpdate = true;
+      (this.hallPool.material as THREE.MeshBasicMaterial).opacity = 0.34 + Math.sin(time * 0.7) * 0.06;
+    }
 
     // 船体轻摇
     this.boat.position.y = this.boatPos.y + Math.sin(time * 0.8) * 0.05;

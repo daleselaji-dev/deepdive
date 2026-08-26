@@ -293,10 +293,15 @@ export class Landmarks {
       tower.add(side);
     }
     // 塔尖被光束击中的亮斑
-    const tipGlow = new THREE.PointLight(0xbfe8da, 42, 18, 1.6);
+    const tipGlow = new THREE.PointLight(0xbfe8da, 85, 26, 1.6);
     tipGlow.position.set(crack.x, floorY + 11.8, crack.z);
     cave.zoneLights.push(tipGlow);
     tower.add(tipGlow);
+    // 裂隙下照聚光：把主塔从黑剪影里雕出来（塔身受光面=画面锚点，M4-L7）
+    const beamSpot = new THREE.SpotLight(0xbfe8da, 430, 36, 0.46, 0.85, 1.3);
+    beamSpot.position.set(crack.x + 0.5, crack.y - 1.5, crack.z + 0.4);
+    beamSpot.target.position.set(crack.x, floorY + 5, crack.z);
+    tower.add(beamSpot, beamSpot.target);
     // 周围一圈小石笋（构图）
     const smallGeos = [dripstoneGeometry(21.7, 12, 16), dripstoneGeometry(33.9, 12, 16)];
     for (let k = 0; k < 8; k++) {
@@ -355,7 +360,8 @@ export class Landmarks {
     // 枯树枝（Angelita 式）：从洞底穿出云面。
     // 硫菌白霜（M4-L4）：H2S 界面以下的化能细菌把枯枝裹上一层灰白菌壳——
     // 真实 anchialine 洞穴（如 Cenote Angelita）的标志性景象，云下白、云上深褐。
-    const branchMat = new THREE.MeshStandardMaterial({ color: 0x231d16, roughness: 0.95 });
+    // 枝色不用纯黑（黑棍读作几何废件）；干加节弯折、分叉真正长在干上（M4-L7 去棱角）
+    const branchMat = new THREE.MeshStandardMaterial({ color: 0x2e2519, roughness: 0.9 });
     const frostMat = new THREE.MeshStandardMaterial({
       color: 0xd6dcd2, roughness: 0.9, emissive: 0x10140f, emissiveIntensity: 0.6,
     });
@@ -373,28 +379,33 @@ export class Landmarks {
       const tg = new THREE.Group();
       tg.position.set(bx, floorY, bz);
       tg.rotation.set((Math.random() - 0.5) * 0.35, 0, (Math.random() - 0.5) * 0.35);
-      const lower = new THREE.Mesh(new THREE.CylinderGeometry(midR, 0.16, hBelow, 5), frostMat);
+      const lower = new THREE.Mesh(new THREE.CylinderGeometry(midR, 0.16, hBelow, 7), frostMat);
       lower.position.y = hBelow / 2;
-      const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.05, midR, hAbove, 5), branchMat);
-      upper.position.y = hBelow + hAbove / 2;
-      tg.add(lower, upper);
+      tg.add(lower);
+      // 上段挂在关节组下，带一个随机折角——枯树的「肘」
+      const joint = new THREE.Group();
+      joint.position.y = hBelow;
+      joint.rotation.set((Math.random() - 0.5) * 0.5, Math.random() * Math.PI, (Math.random() - 0.5) * 0.5);
+      const upper = new THREE.Mesh(new THREE.CylinderGeometry(0.045, midR, hAbove, 7), branchMat);
+      upper.position.y = hAbove / 2;
+      joint.add(upper);
+      tg.add(joint);
       hg.add(tg);
-      // 分叉：云下的分叉同样挂霜
-      const n = 1 + Math.floor(Math.random() * 3);
+      // 分叉：几何平移出基端枢轴后长在干的对应高度上（原实现随机悬在干旁像漂浮的棍）
+      const n = 2 + Math.floor(Math.random() * 2);
       for (let b = 0; b < n; b++) {
-        const bl = 0.8 + Math.random() * 2;
-        const by = floorY + h * (0.55 + Math.random() * 0.4);
-        const branch = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.02, 0.05, bl, 4),
-          by < y ? frostMat : branchMat,
+        const bl = 0.7 + Math.random() * 1.6;
+        const hFrac = 0.45 + Math.random() * 0.5;
+        const geo = new THREE.CylinderGeometry(0.018, 0.05, bl, 5);
+        geo.translate(0, bl / 2, 0);
+        const fork = new THREE.Mesh(geo, floorY + h * hFrac < y ? frostMat : branchMat);
+        fork.position.set(0, h * hFrac, 0);
+        fork.rotation.set(
+          (0.5 + Math.random() * 0.6) * (Math.random() < 0.5 ? 1 : -1),
+          Math.random() * Math.PI * 2,
+          (Math.random() - 0.5) * 0.4,
         );
-        branch.position.set(
-          bx + (Math.random() - 0.5) * 0.8,
-          by,
-          bz + (Math.random() - 0.5) * 0.8,
-        );
-        branch.rotation.set((Math.random() - 0.5) * 1.6, Math.random() * 3, (Math.random() - 0.5) * 1.6);
-        hg.add(branch);
+        tg.add(fork);
       }
     }
 
@@ -489,6 +500,21 @@ export class Landmarks {
     mast.position.set(1.8, 0.35, 1);
     mast.rotation.set(0.1, 0, Math.PI / 2 - 0.22);
     wreck.add(mast);
+    // 残存船壳板：两片弧面（骨架之外要有「体量」，纯肋骨读作乱线团——M4-L7 读形）
+    const shellL = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.55, 1.35, 4.6, 14, 1, true, Math.PI * 0.62, Math.PI * 0.55),
+      wood,
+    );
+    shellL.rotation.set(Math.PI / 2, 0, 0); // 圆筒轴转到船长方向（z）
+    shellL.position.set(-0.15, 0.5, -1.4);
+    wreck.add(shellL);
+    const shellR = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.45, 1.3, 3.2, 12, 1, true, Math.PI * 1.32, Math.PI * 0.48),
+      wood,
+    );
+    shellR.rotation.set(Math.PI / 2, 0, 0);
+    shellR.position.set(0.1, 0.42, 1.9);
+    wreck.add(shellR);
     // 散板
     for (let i = 0; i < 12; i++) {
       const plank = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.05, 1.2 + Math.random() * 1.4), wood);
@@ -543,7 +569,7 @@ export class Landmarks {
     flame.position.y = 0.34;
     lantern.add(flame);
     lantern.position.set(0.4, 0.6, -3.9);
-    const lanternLight = new THREE.PointLight(0x66d89a, 6, 9, 1.8);
+    const lanternLight = new THREE.PointLight(0x66d89a, 14, 12, 1.8);
     lanternLight.position.y = 0.34;
     lantern.add(lanternLight);
     cave.zoneLights.push(lanternLight);
@@ -586,7 +612,7 @@ export class Landmarks {
     cave.zoneLights.push(fill);
     this.group.add(fill);
     // 船体上方的窄冷光——"墓志"式顶光
-    const top = new THREE.PointLight(0x6a9a8a, 30, 18, 1.7);
+    const top = new THREE.PointLight(0x6a9a8a, 55, 20, 1.7);
     top.position.set(this.wreckPos.x, this.wreckPos.y + 5, this.wreckPos.z);
     cave.zoneLights.push(top);
     this.group.add(top);

@@ -410,6 +410,12 @@ export class Cave {
         if (isMain) {
           // ① 天窗：水面以上全部敞开（天坑开口）
           if (qc.y > -0.35) skip = true;
+          // ①b 井口水柱净空：发卡回折处的管壁裙边会垂进泳池上方（低至 -3.2m），
+          //    把天窗剪成杂乱环、堵死仰望英雄镜头——池心水平半径内浅层岩唇全部裁掉（M4-L7）
+          if (!skip && qc.y > -5.5) {
+            const dxp = qc.x - this.poolCenter.x, dzp = qc.z - this.poolCenter.z;
+            if (dxp * dxp + dzp * dzp < 5.4 * 5.4) skip = true;
+          }
           // ② 接缝双壁去重：去程/回程管在竖井重叠段，去掉互相穿插的内壁
           if (!skip) {
             const t = ringT[i];
@@ -506,6 +512,14 @@ export class Cave {
       for (let j = 0; j < radial; j++) {
         const a = i * (radial + 1) + j;
         const b = a + radial + 1;
+        // 与主管 ①b 同步的井口水柱净空：壁被裁掉后壳不能留悬浮光膜
+        const cy = (pos[a * 3 + 1] + pos[b * 3 + 1] + pos[(a + 1) * 3 + 1] + pos[(b + 1) * 3 + 1]) / 4;
+        if (cy > -5.5) {
+          const cx = (pos[a * 3] + pos[b * 3] + pos[(a + 1) * 3] + pos[(b + 1) * 3]) / 4;
+          const cz = (pos[a * 3 + 2] + pos[b * 3 + 2] + pos[(a + 1) * 3 + 2] + pos[(b + 1) * 3 + 2]) / 4;
+          const dxp = cx - this.poolCenter.x, dzp = cz - this.poolCenter.z;
+          if (dxp * dxp + dzp * dzp < 5.4 * 5.4) continue;
+        }
         idx.push(a, b, a + 1, b, b + 1, a + 1);
       }
     }
@@ -563,13 +577,64 @@ export class Cave {
         i--;
         continue;
       }
-      const s = (0.28 + Math.random() * 0.85) * Math.min(2.2, main.radiusAt(t) * 0.16 + 0.7);
+      { // 井口水柱净空（①b 裁掉壁面后，这里的石头会悬浮在天窗里）
+        const dxp = posv.x - this.poolCenter.x, dzp = posv.z - this.poolCenter.z;
+        if (posv.y > -6.5 && dxp * dxp + dzp * dzp < 6.2 * 6.2) {
+          i--;
+          continue;
+        }
+      }
+      // 竖井中上层（英雄镜头区）：凸石缩小并嵌得更深——大石在窄井里会怼脸毁构图（M4-L7）
+      const shallow = posv.y > -16;
+      if (shallow) posv.addScaledVector(posv.clone().sub(center).normalize(), main.radiusAt(t) * 0.05);
+      const s = (0.28 + Math.random() * 0.85) * Math.min(2.2, main.radiusAt(t) * 0.16 + 0.7)
+        * (shallow ? 0.42 : 1);
       scl.set(s, s * (0.6 + Math.random() * 0.9), s);
       quat.setFromEuler(new THREE.Euler(Math.random() * 3, Math.random() * 3, Math.random() * 3));
       m.compose(posv, quat, scl);
       meshes[i % variants.length].setMatrixAt(Math.floor(i / variants.length), m);
     }
     for (const mesh of meshes) this.group.add(mesh);
+
+    // 井口领圈：水柱净空（①b）裁出的台阶沿口用一圈巨石收边——读作天然钟形唇（M4-L7）
+    const collarGeo = boulderGeometry(13.7);
+    const collar = new THREE.InstancedMesh(collarGeo, mat, 24);
+    for (let k = 0; k < 24; k++) {
+      const a = (k / 24) * Math.PI * 2 + Math.sin(k * 5.3) * 0.1;
+      const s = 1.7 + Math.abs(Math.sin(k * 7.7)) * 1.2;
+      scl.set(s, s * (0.55 + Math.abs(Math.sin(k * 3.9)) * 0.4), s);
+      quat.setFromEuler(new THREE.Euler(Math.sin(k * 9.1) * 3, Math.cos(k * 4.3) * 3, k));
+      m.compose(
+        new THREE.Vector3(
+          this.poolCenter.x + Math.cos(a) * (6.3 + Math.sin(k * 2.9) * 0.5),
+          -5.4 + Math.sin(k * 6.1) * 0.8,
+          this.poolCenter.z + Math.sin(a) * (6.3 + Math.cos(k * 3.7) * 0.5),
+        ),
+        quat,
+        scl,
+      );
+      collar.setMatrixAt(k, m);
+    }
+    this.group.add(collar);
+    // 水线唇石：①/①b 的交界在水面下留出台阶冠——一圈小唇石收边，读作泳池天然岩沿
+    const lip = new THREE.InstancedMesh(collarGeo, mat, 18);
+    for (let k = 0; k < 18; k++) {
+      const a = (k / 18) * Math.PI * 2 + Math.cos(k * 4.7) * 0.12;
+      const s = 0.8 + Math.abs(Math.sin(k * 6.3)) * 0.7;
+      scl.set(s, s * 0.7, s);
+      quat.setFromEuler(new THREE.Euler(Math.cos(k * 8.3) * 3, Math.sin(k * 5.9) * 3, k * 1.7));
+      m.compose(
+        new THREE.Vector3(
+          this.poolCenter.x + Math.cos(a) * (6.6 + Math.sin(k * 3.3) * 0.4),
+          -0.65 + Math.sin(k * 7.9) * 0.25,
+          this.poolCenter.z + Math.sin(a) * (6.6 + Math.cos(k * 2.7) * 0.4),
+        ),
+        quat,
+        scl,
+      );
+      lip.setMatrixAt(k, m);
+    }
+    this.group.add(lip);
   }
 
   // ---------- 空间查询 ----------

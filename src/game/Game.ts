@@ -29,7 +29,7 @@ const ZONE_ENV: Record<ZoneName, { fog: number; den: number; exp: number }> = {
   shaft: { fog: 0x0b2a33, den: 0.032, exp: 1.02 },
   gallery: { fog: 0x081c23, den: 0.044, exp: 0.96 },
   throat: { fog: 0x05161c, den: 0.058, exp: 0.92 },
-  hall: { fog: 0x04161a, den: 0.034, exp: 0.94 },
+  hall: { fog: 0x04161a, den: 0.028, exp: 1.04 },
   halo: { fog: 0x0a1d1c, den: 0.05, exp: 0.9 },
   wreck: { fog: 0x061418, den: 0.044, exp: 0.9 },
   collapse: { fog: 0x040f13, den: 0.062, exp: 0.86 },
@@ -298,7 +298,14 @@ export class Game {
       pick: (): { chain: string; geo: string; color: string; dist: number; point: number[] } | null => {
         const rc = new THREE.Raycaster();
         rc.setFromCamera(new THREE.Vector2(0, 0), this.player.camera);
-        const h = rc.intersectObjects(this.scene.children, true)[0];
+        // 跳过粒子/精灵/透明体积（浮游云、光柱会截胡射线，拾取它们几乎从不是本意）
+        const h = rc.intersectObjects(this.scene.children, true)
+          .find((x) => {
+            if (x.object instanceof THREE.Points || x.object instanceof THREE.Sprite) return false;
+            const m = (x.object as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+            const mm = Array.isArray(m) ? m[0] : m;
+            return !(mm && mm.transparent);
+          });
         if (!h) return null;
         const chain: string[] = [];
         let p: THREE.Object3D | null = h.object;
@@ -315,6 +322,28 @@ export class Game {
       },
       jump: (t: number) => {
         this.player.setStart(this.cave, Math.max(0.001, Math.min(0.999, t)));
+      },
+      /** 任意两点射线探测：返回首个不透明命中（机位勘察/穿帮排查用） */
+      ray: (ox: number, oy: number, oz: number, tx: number, ty: number, tz: number):
+        { dist: number; point: number[]; geo: string } | null => {
+        const o = new THREE.Vector3(ox, oy, oz);
+        const d = new THREE.Vector3(tx, ty, tz).sub(o);
+        const len = d.length();
+        const rc = new THREE.Raycaster(o, d.normalize(), 0.01, len);
+        rc.camera = this.player.camera; // Sprite.raycast 需要相机引用，缺了会空指针
+        const h = rc.intersectObjects(this.scene.children, true)
+          .find((x) => {
+            if (x.object instanceof THREE.Points || x.object instanceof THREE.Sprite) return false;
+            const m = (x.object as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+            const mm = Array.isArray(m) ? m[0] : m;
+            return !(mm && mm.transparent);
+          });
+        if (!h) return null;
+        return {
+          dist: +h.distance.toFixed(2),
+          point: h.point.toArray().map((v) => +v.toFixed(2)),
+          geo: (h.object as THREE.Mesh).geometry?.type ?? '?',
+        };
       },
       look: (yaw: number, pitch: number) => {
         this.player.yaw = yaw;
@@ -816,18 +845,18 @@ export class Game {
     }
   }
 
-  /** 标题首屏（英雄机位）：井轴 8m 深处定点仰望 Snell 窗——船底剪影恰好悬在阳光爆点上，光柱簇+鱼群绕柱 */
+  /** 标题首屏（英雄机位）：井口净空柱内仰望 Snell 窗——船底剪影与太阳爆点同框，光柱簇+鱼群绕柱 */
   private titleIdle(dt: number): void {
     const pc = this.cave.poolCenter;
     this.player.camera.position.set(
-      pc.x - 0.4 + Math.sin(this.time * 0.06) * 0.3,
-      -10.2 + Math.sin(this.time * 0.09) * 0.35,
-      pc.z + 3.6 + Math.cos(this.time * 0.055) * 0.3,
+      pc.x - 2.4 + Math.sin(this.time * 0.06) * 0.3,
+      -8.6 + Math.sin(this.time * 0.09) * 0.35,
+      pc.z - 1.5 + Math.cos(this.time * 0.055) * 0.3,
     );
     const look = new THREE.Vector3(
-      pc.x + this.water.sunDir.x * 2.6 + Math.sin(this.time * 0.05) * 0.5,
-      3.0,
-      pc.z + this.water.sunDir.z * 2.6 + Math.cos(this.time * 0.045) * 0.5,
+      pc.x - 0.9 + Math.sin(this.time * 0.05) * 0.5,
+      4.0,
+      pc.z + 0.9 + Math.cos(this.time * 0.045) * 0.5,
     );
     this.player.camera.lookAt(look);
     this.player.camera.rotation.z += Math.sin(this.time * 0.045) * 0.01;
