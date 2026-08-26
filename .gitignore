@@ -1,0 +1,7 @@
+node_modules/
+dist/
+release/DeepDive-win32-x64/
+.cache/
+*.log
+.DS_Store
+*.asar
