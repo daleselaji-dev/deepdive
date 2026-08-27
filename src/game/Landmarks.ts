@@ -22,6 +22,9 @@ export class Landmarks {
   readonly altarPos = new THREE.Vector3();
   /** 沉船中心（取景/调试用） */
   readonly wreckPos = new THREE.Vector3();
+  /** M5-L2 新奇观地标锚点（取景/调试用） */
+  readonly organPos = new THREE.Vector3();
+  readonly archPos = new THREE.Vector3();
   readonly altarLight: THREE.PointLight;
   private altarGems: THREE.Mesh[] = [];
   private haloMats: THREE.MeshBasicMaterial[] = [];
@@ -54,6 +57,151 @@ export class Landmarks {
     this.buildBatChamber(cave);
     this.buildFakeLineSlit(cave);
     this.buildBypassMarks(cave);
+    this.buildOrganCurtain(cave, rockMat);
+    this.buildGreatArch(cave, rockMat);
+  }
+
+  // ---------- M5-L2 新奇观 · Z2 管风琴帷幕：一整面流石幕 + 石柱列 ----------
+  /** 回廊的「一眼奇观」从散点石笋升级成一面墙：高低错落的流石柱像倒悬的管风琴。 */
+  private buildOrganCurtain(cave: Cave, mat: THREE.MeshStandardMaterial): void {
+    const { t0, t1 } = cave.zoneRange('gallery');
+    const tBase = t0 + (t1 - t0) * 0.52;
+    const fr0 = cave.frameAt(0, tBase);
+    const anchor = fr0.p.clone();
+    // 帷幕贴「水平侧壁」：横向偏移只用 N（B 在水平管段主要指向竖直——角向混入 B 会把柱列吊上天，M5-L2 踩坑）
+    const side = fr0.N.y > 0.5 || fr0.N.y < -0.5 ? fr0.B.clone() : fr0.N.clone();
+    side.y = 0;
+    side.normalize();
+    this.organPos.copy(anchor).addScaledVector(side, cave.radiusAt(tBase) * 0.72);
+    const g = new THREE.Group();
+    const rnd = (k: number): number => {
+      const s = Math.sin(k * 91.7 + 33.1) * 43758.5453;
+      return s - Math.floor(s);
+    };
+    // 沿切向排 13 根柱：同一水平壁侧，高度按「音管」节奏起伏；
+    // 每根柱的地板/天花取该横向偏移处的弦高（贴壁处洞顶更低——用弦高才落地）
+    const PIPES = 13;
+    for (let k = 0; k < PIPES; k++) {
+      const tk = tBase + (k - PIPES / 2) * 0.0024;
+      const fr = cave.frameAt(0, tk);
+      const r = cave.radiusAt(tk);
+      const sideK = fr.N.y > 0.5 || fr.N.y < -0.5 ? fr.B.clone() : fr.N.clone();
+      sideK.y = 0;
+      sideK.normalize();
+      const d = r * (0.62 + rnd(k * 5.1) * 0.14);
+      const base = fr.p.clone().addScaledVector(sideK, d);
+      const chord = Math.sqrt(Math.max(1.2, r * r - d * d)); // 该偏移处的半弦高
+      const floorY = fr.p.y - chord * 1.02; // 略埋进地板（凹凸位移余量）
+      const ceilY = fr.p.y + chord * 1.02;
+      // 音管节奏：中央最高（顶天立地的全柱），两侧渐短
+      const rhythm = 1 - Math.abs(k - PIPES / 2) / (PIPES / 2);
+      const full = rhythm > 0.55 || rnd(k * 7.3) > 0.72;
+      const sxz = 0.5 + rnd(k * 9.7) * 0.5 + rhythm * 0.4;
+      if (full) {
+        // 全柱：石笋+石钟乳腰部相接
+        const up = new THREE.Mesh(dripstoneGeometry(4.1 + k, 14, 18), mat);
+        up.scale.set(sxz, (ceilY - floorY) * 0.55, sxz);
+        up.position.set(base.x, floorY, base.z);
+        const down = new THREE.Mesh(dripstoneGeometry(9.3 + k, 14, 18), mat);
+        down.scale.set(sxz * 0.88, (ceilY - floorY) * 0.55, sxz * 0.88);
+        down.rotation.x = Math.PI;
+        down.position.set(base.x, ceilY, base.z);
+        g.add(up, down);
+      } else {
+        const h = (ceilY - floorY) * (0.32 + rhythm * 0.35 + rnd(k * 11.1) * 0.15);
+        const up = new THREE.Mesh(dripstoneGeometry(6.7 + k, 12, 16), mat);
+        up.scale.set(sxz * 0.85, h, sxz * 0.85);
+        up.position.set(base.x, floorY, base.z);
+        g.add(up);
+      }
+    }
+    // 帷幕流石裙：柱列基座连成一条流石台（读作一面墙而非散点），沉入地板
+    const skirtGeo = boulderGeometry(17.9, 2);
+    const skirt = new THREE.InstancedMesh(skirtGeo, mat, 9);
+    const m4 = new THREE.Matrix4();
+    const q4 = new THREE.Quaternion();
+    for (let k = 0; k < 9; k++) {
+      const tk = tBase + (k - 4.5) * 0.0034;
+      const fr = cave.frameAt(0, tk);
+      const r = cave.radiusAt(tk);
+      const sideK = fr.N.y > 0.5 || fr.N.y < -0.5 ? fr.B.clone() : fr.N.clone();
+      sideK.y = 0;
+      sideK.normalize();
+      const d = r * 0.68;
+      const chord = Math.sqrt(Math.max(1.2, r * r - d * d));
+      const base = fr.p.clone().addScaledVector(sideK, d);
+      base.y = fr.p.y - chord * 1.0;
+      const s = 1.2 + rnd(k * 4.3) * 0.8;
+      q4.setFromEuler(new THREE.Euler(rnd(k * 6.1) * 0.5, rnd(k * 8.9) * 6.28, rnd(k * 2.9) * 0.5));
+      m4.compose(base, q4, new THREE.Vector3(s * 1.6, s * 0.5, s));
+      skirt.setMatrixAt(k, m4);
+    }
+    g.add(skirt);
+    // 帷幕洗墙光：暖聚光从对侧壁打向柱列 + 冷点光勾轮廓
+    const warm = new THREE.SpotLight(0xd8c9a0, 90, 26, 0.7, 0.75, 1.4);
+    warm.position.copy(anchor).addScaledVector(side, -cave.radiusAt(tBase) * 0.45).add(new THREE.Vector3(0, 1.2, 0));
+    warm.target.position.copy(this.organPos);
+    g.add(warm, warm.target);
+    const cool = new THREE.PointLight(0x3a5e66, 16, 18, 1.6);
+    cool.position.copy(anchor).add(new THREE.Vector3(0, 2.4, 0));
+    cave.zoneLights.push(cool);
+    g.add(cool);
+    this.group.add(g);
+    this.registerCull(g, anchor, 60);
+  }
+
+  // ---------- M5-L2 新奇观 · Z4→Z5 巨拱门：跨管天然岩拱（界门） ----------
+  /** 光之厅通往卤水镜的「界门」：一道跨越整个通道的天然岩拱——构图地标 + 回程可辨识。 */
+  private buildGreatArch(cave: Cave, mat: THREE.MeshStandardMaterial): void {
+    const { t0, t1 } = cave.zoneRange('halo');
+    const tArch = t0 + (t1 - t0) * 0.1;
+    const { p, N, B } = cave.frameAt(0, tArch);
+    const r = cave.radiusAt(tArch);
+    this.archPos.copy(p);
+    const g = new THREE.Group();
+    const rnd = (k: number): number => {
+      const s = Math.sin(k * 57.3 + 12.9) * 43758.5453;
+      return s - Math.floor(s);
+    };
+    // 拱：N/B 平面上的上半环弧（-15°~195°），底脚楔进洞壁；中央留 ≥3.2m 泳门
+    const geo = boulderGeometry(23.3, 2);
+    const STONES = 15;
+    const arch = new THREE.InstancedMesh(geo, mat, STONES);
+    const m4 = new THREE.Matrix4();
+    const q4 = new THREE.Quaternion();
+    for (let k = 0; k < STONES; k++) {
+      const a = (-0.26 + (k / (STONES - 1)) * (Math.PI + 0.52));
+      // 拱脚沉得更低更粗（楔进壁），拱顶石最扁
+      const edge = Math.abs(k - (STONES - 1) / 2) / ((STONES - 1) / 2); // 0 顶 1 脚
+      const rad = r * (0.62 + edge * 0.2);
+      const pos = p.clone()
+        .addScaledVector(N, Math.cos(a) * rad)
+        .addScaledVector(B, Math.sin(a) * rad * 0.92);
+      const s = 1.15 + edge * 1.05 + rnd(k * 3.1) * 0.35;
+      q4.setFromEuler(new THREE.Euler(rnd(k * 5.7) * 3, rnd(k * 7.9) * 3, a));
+      m4.compose(pos, q4, new THREE.Vector3(s, s * 0.72, s * 0.85));
+      arch.setMatrixAt(k, m4);
+    }
+    g.add(arch);
+    // 拱下垂石：门楣挂几根石钟乳（穿门时的头顶细节）
+    for (let k = 0; k < 4; k++) {
+      const a = 1.1 + k * 0.28;
+      const hang = new THREE.Mesh(dripstoneGeometry(31.7 + k, 10, 14), mat);
+      const pos = p.clone()
+        .addScaledVector(N, Math.cos(a) * r * 0.5)
+        .addScaledVector(B, Math.sin(a) * r * 0.5);
+      hang.scale.set(0.3 + rnd(k * 9.1) * 0.2, 1.1 + rnd(k * 4.7) * 0.9, 0.3);
+      hang.rotation.x = Math.PI;
+      hang.position.copy(pos);
+      g.add(hang);
+    }
+    // 界门光：拱后冷幽绿逆光（卤水层的颜色从门里漏出来——回程时反向读作暖门）
+    const gate = new THREE.PointLight(0x4e6e58, 30, 24, 1.5);
+    gate.position.copy(p).addScaledVector(cave.frameAt(0, tArch + 0.004).p.clone().sub(p).normalize(), 6);
+    cave.zoneLights.push(gate);
+    g.add(gate);
+    this.group.add(g);
+    this.registerCull(g, p, 70);
   }
 
   // ---------- 支线 C 蝙蝠气室（水面气穴 + 粪堆锥 + 裂隙漏光；蝙蝠群动画在 Ecology） ----------
@@ -714,8 +862,9 @@ export class Landmarks {
     const pc = cave.pitCenter;
     const pg = new THREE.Group(); // 井口地标簇：距离剔除整组启停
     // 井壁：向下延伸的暗筒
+    // M5-L2 黑井加深：34→46m——「有底」的错觉推得更远
     const wall = new THREE.Mesh(
-      new THREE.CylinderGeometry(4.7, 5.4, 34, 20, 3, true),
+      new THREE.CylinderGeometry(4.7, 5.4, 46, 20, 4, true),
       new THREE.MeshStandardMaterial({
         map: cave.rock.map,
         color: 0x2a3330,
@@ -723,7 +872,7 @@ export class Landmarks {
         side: THREE.BackSide,
       }),
     );
-    wall.position.set(pc.x, pc.y - 16, pc.z);
+    wall.position.set(pc.x, pc.y - 22, pc.z);
     pg.add(wall);
     // 井底纯黑
     const abyssDisc = new THREE.Mesh(
@@ -731,7 +880,7 @@ export class Landmarks {
       new THREE.MeshBasicMaterial({ color: 0x000000 }),
     );
     abyssDisc.rotation.x = -Math.PI / 2;
-    abyssDisc.position.set(pc.x, pc.y - 32.5, pc.z);
+    abyssDisc.position.set(pc.x, pc.y - 44.5, pc.z);
     pg.add(abyssDisc);
     // 井口崩落岩块环：厚重的碎石唇缘，遮住地面开洞的裁切锯齿
     const rimGeo = boulderGeometry(5.5, 3);

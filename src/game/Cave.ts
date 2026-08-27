@@ -67,43 +67,49 @@ function ridged(t: number, ang: number): number {
   return v * 0.968; // 5 倍频总幅 1.9375 → 归一回 4 倍频的 1.875，位移预算不变
 }
 
-/** 主脉控制点：[x, y, z, 区名] —— 闭环（尾接头） */
-const CP: [number, number, number, ZoneName][] = [
-  [0, 3, 0, 'shaft'], // 0 接缝（水面上方，天窗镂空）
-  [0.5, -6, 2, 'shaft'], // 1
-  [-2, -13, 6, 'shaft'], // 2 竖井底
+/**
+ * 主脉控制点（M5-L2 剖面重塑）：[x, y, z, 区名, 半径覆写?] —— 闭环（尾接头）。
+ * 重做要点：竖井「钟形腹」（水下先阔后收，光腔感）；咽喉加一拐成 S 弯并收窄
+ * （挤压段的窒息节奏）；光之厅/深渊扩容（穹顶更高、黑井更远）；
+ * 烟囱螺旋横摆加大 + 半径串珠（上升是「绕着光爬」）。
+ */
+const CP: [number, number, number, ZoneName, number?][] = [
+  [0, 3, 0, 'shaft', 6.2], // 0 接缝（水面上方，天窗镂空）
+  [0.5, -6, 2, 'shaft', 6.35], // 1 微钟形腹（>6.4 会在净空柱外挂「屋檐」遮死 Snell 窗，M5-L2 踩坑）
+  [-2, -13, 6, 'shaft', 5.6], // 2 竖井底收口（光柱聚焦）
   [-12, -16.5, 13, 'gallery'], // 3
   [-24, -18, 17, 'gallery'], // 4
-  [-35, -20, 12, 'throat'], // 5
-  [-45, -23, 2, 'throat'], // 6
-  [-52, -24.5, -12, 'throat'], // 7
-  [-60, -26.5, -30, 'hall'], // 8 光之厅
-  [-63, -28.5, -48, 'hall'], // 9
-  [-61, -31, -66, 'halo'], // 10 卤水层
-  [-53, -33.5, -82, 'halo'], // 11
-  [-41, -36, -94, 'wreck'], // 12 沉船厅
-  [-25, -38, -102, 'wreck'], // 13
-  [-9, -40.5, -104, 'collapse'], // 14
-  [5, -42.5, -99, 'collapse'], // 15
-  [17, -45, -87, 'abyss'], // 16
-  [27, -47, -68, 'abyss'], // 17 深渊大厅中心
-  [31, -46, -48, 'abyss'], // 18 烟囱入口侧
-  [27, -38, -33, 'chimney'], // 19
-  [17, -29.5, -21, 'chimney'], // 20
-  [7, -21.5, -14, 'chimney'], // 21
-  [1, -14, -7, 'chimney'], // 22
-  [0.2, -7.5, -2, 'shaft'], // 23 回接竖井
+  [-35, -20, 12, 'throat', 2.5], // 5
+  [-44, -22, 7, 'throat', 2.15], // 6 S 弯第一拐（最窄）
+  [-46, -23.5, -4, 'throat', 2.45], // 7 S 弯回摆
+  [-53, -25, -13, 'throat', 2.2], // 8 出咽喉
+  [-60, -26.5, -30, 'hall'], // 9 光之厅
+  [-63, -28.5, -48, 'hall'], // 10
+  [-61, -31, -66, 'halo'], // 11 卤水层
+  [-53, -33.5, -82, 'halo'], // 12
+  [-41, -36, -94, 'wreck'], // 13 沉船厅
+  [-25, -38, -102, 'wreck'], // 14
+  [-9, -40.5, -104, 'collapse'], // 15
+  [5, -42.5, -99, 'collapse'], // 16
+  [17, -45, -87, 'abyss'], // 17
+  [27, -47, -68, 'abyss'], // 18 深渊大厅中心
+  [31, -46, -48, 'abyss'], // 19 烟囱入口侧
+  [29, -37.5, -31, 'chimney', 4.4], // 20 螺旋外摆
+  [15, -29, -24, 'chimney', 3.7], // 21 收束（串珠窄段）
+  [10, -20.5, -8, 'chimney', 4.6], // 22 大摆（回望井方向）
+  [0.5, -13.5, -6, 'chimney', 4.0], // 23
+  [0.2, -7.5, -2, 'shaft'], // 24 回接竖井
 ];
 
 const ZONE_RADIUS: Record<ZoneName, number> = {
   shaft: 6.2,
   gallery: 5.0,
-  throat: 2.7,
-  hall: 12.5,
+  throat: 2.4,
+  hall: 14,
   halo: 7.5,
   wreck: 10.5,
   collapse: 3.2,
-  abyss: 16.5,
+  abyss: 17.5,
   chimney: 4.2,
 };
 
@@ -196,8 +202,8 @@ export class Cave {
       return best / MAIN_N;
     });
 
-    // 半径节点 & 分区表
-    const knots: RKnot[] = CP.map(([, , , zn], i) => ({ t: cpT[i], r: ZONE_RADIUS[zn] }));
+    // 半径节点 & 分区表（每点可覆写半径——剖面重塑的钟形/串珠节奏）
+    const knots: RKnot[] = CP.map(([, , , zn, rOverride], i) => ({ t: cpT[i], r: rOverride ?? ZONE_RADIUS[zn] }));
     const mainPath: CavePath = {
       id: 0,
       curve: mainCurve,
@@ -231,7 +237,8 @@ export class Cave {
       let t0 = (cpT[firstIdx[zn]!] + cpT[lastIdx[prev]!]) / 2;
       let t1 = (cpT[lastIdx[zn]!] + cpT[firstIdx[next]!]) / 2;
       if (zn === 'shaft') t0 = 0;
-      if (zn === 'chimney') t1 = cpT[23] + (1 - cpT[23]) * 0.5;
+      const last = CP.length - 1;
+      if (zn === 'chimney') t1 = cpT[last] + (1 - cpT[last]) * 0.5;
       this.zones.push({ name: zn, t0, t1 });
       this.zoneT.set(zn, { t0, t1 });
     }
