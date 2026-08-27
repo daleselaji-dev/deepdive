@@ -14,6 +14,7 @@ import { Hud } from './Hud';
 import { Story, type StoryContext } from './Story';
 import { Scare } from './Scare';
 import { Buddy, type BuddyGesture } from './Buddy';
+import { PlayerBody } from './PlayerBody';
 import { SimDirector, SIM_SPECS } from './Sim';
 
 type GameState = 'title' | 'play' | 'hypoxia' | 'ended';
@@ -146,6 +147,10 @@ export class Game {
   private adaptOn = true;
   private lightRank: { l: THREE.PointLight; d2: number }[] = [];
 
+  // M5-L3 玩家第一人称身体（持灯手臂/腕表电脑/呼吸气泡）
+  private body!: PlayerBody;
+  private buddySlowAt = -99;
+
   // 潜伴「特奥」（支援潜水员：护送段 + 减压带汇合）
   private buddy!: Buddy;
   private buddyPathId = 0;
@@ -193,6 +198,7 @@ export class Game {
     this.story = new Story(this.cave);
     this.scare = new Scare(this.scene);
     this.buddy = new Buddy(this.scene);
+    this.body = new PlayerBody(this.scene, this.player.lightRig, particleSprite());
     this.buildBuddyBeats();
     this.sim = new SimDirector(this.cave, this.player, this.buddy, this.hud, this.audio, this.scene, {
       time: () => this.time,
@@ -384,6 +390,8 @@ export class Game {
           pool: this.cave.poolCenter,
           altar: this.landmarks.altarPos,
           wreck: this.landmarks.wreckPos,
+          organ: this.landmarks.organPos,
+          arch: this.landmarks.archPos,
           boat: this.water.boatPos,
         };
         return (marks[name] ?? this.player.position).toArray();
@@ -633,6 +641,18 @@ export class Game {
       }
     }
 
+    // M5-L3 行为节拍：护送段玩家冲刺 → 特奥打「慢」灯语（呼吸与鳍法教学）
+    if (
+      this.mode === 'story' && this.buddy.mode === 'follow' && !this.buddy.gesturing &&
+      this.input.sprint && this.lastSpeed > 2.2 && this.time - this.buddySlowAt > 25
+    ) {
+      this.buddySlowAt = this.time;
+      this.buddy.gesture('slow', 3.2);
+      if (this.buddySlowAt < 60) {
+        this.hud.subtitle('特奥掌心向下，缓缓压了两下——慢。\n在洞里，快就是费气，费气就是危险。', '', 5.5);
+      }
+    }
+
     // 气检对视回应：玩家把视线对准特奥
     if (this.gazeAwaitUntil > 0) {
       const toBuddy = this.buddy.worldPos.clone().sub(this.player.camera.position).normalize();
@@ -761,6 +781,7 @@ export class Game {
     this.input.enable();
     this.input.requestPointerLock();
     this.player.lightOn(40);
+    this.body.setVisible(true);
     this.state = 'play';
     this.phase = 'descent';
     this.startedAt = this.time;
@@ -785,6 +806,7 @@ export class Game {
     this.input.enable();
     this.input.requestPointerLock();
     this.player.lightOn(40);
+    this.body.setVisible(true);
     this.state = 'play';
     this.phase = 'descent';
     this.mode = 'sim';
@@ -1011,6 +1033,13 @@ export class Game {
     }
     const { speed } = this.player.update(dt, this.input, this.cave, this.time);
     this.lastSpeed = speed;
+
+    // 第一人称身体：手臂摆动 + 潜水电脑屏色 + 呼吸气泡（气穴/水面/缺氧不吐泡）
+    this.body.update(
+      dt, this.time, speed, this.input.sprint,
+      this.oxygen > 0 && !this.inAirPocket && this.phase !== 'surface' && this.phase !== 'boarding',
+      this.player.camera.position, this.player.camera.quaternion, this.oxygen / 100,
+    );
 
     // ---- 氧气 ----
     if (!reading && this.phase !== 'surface' && this.phase !== 'boarding') {
@@ -1473,6 +1502,8 @@ export class Game {
     this.player.flashlight.color.lerpColors(new THREE.Color(0xffd9a0), new THREE.Color(0xffe9cf), k);
     this.player.flashlight.intensity = 40 + k * 28;
     this.player.flashlight.angle = 0.48 + k * 0.3;
+    // 身体还在，气泡停了——最后一口气已经呼出去了
+    this.body.update(dt, this.time, 0, false, false, this.player.camera.position, this.player.camera.quaternion, 0);
     this.hud.setOxygen(0);
     this.hud.setDepth(this.player.depth);
     this.tension = Math.max(0.15, 0.9 - k);

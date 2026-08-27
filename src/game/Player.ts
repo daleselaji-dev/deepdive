@@ -123,7 +123,7 @@ export class Player {
     this.lightRig.position.lerp(this.camera.position, Math.min(1, 18 * dt));
     const lag = Math.min(1, 6.5 * dt);
     this.lightRig.quaternion.slerp(this.camera.quaternion, lag);
-    this.flashlight.position.set(0.14, -0.12, 0.05);
+    this.flashlight.position.set(0.17, -0.19, -0.45); // 与 PlayerBody 手电筒头同位——光从手上的灯里出来
     this.lightTarget.position.set(
       Math.sin(time * 1.1) * 0.15 + Math.sin(time * 2.7) * 0.045,
       Math.cos(time * 0.9) * 0.13,
