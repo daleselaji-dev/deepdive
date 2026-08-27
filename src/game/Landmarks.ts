@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { QualityProfile } from './quality';
 import type { Cave } from './Cave';
 import type { Models } from './Models';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { glyphTexture, particleSprite, woodTexture } from './textures';
 import { boulderGeometry, dripstoneGeometry, vnoise3 } from './geo';
 
@@ -139,6 +140,18 @@ export class Landmarks {
     // 每根柱的地板/天花取该横向偏移处的弦高（贴壁处洞顶更低——用弦高才落地）
     // M5-L6 重制：旧版 13 根尖锥间距仅 ~0.6m、柱径 >1m——互相嵌成一面糊墙，读作「尖牙」。
     // 改等距密排「圆柱管」（微锥收 + 上下裙边），间距 ~1.1m / 柱径 ~0.8m，缝隙里透出洗墙光。
+    // M5-L7：30+ 个部件合并成单 Mesh（每柱 2~3 件 ×11 根曾吃掉 ~34 个 drawcall）
+    const parts: THREE.BufferGeometry[] = [];
+    const partM = new THREE.Matrix4();
+    const partQ = new THREE.Quaternion();
+    const qFlip = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI, 0, 0));
+    const addPart = (
+      geo: THREE.BufferGeometry, x: number, y: number, z: number,
+      sx: number, sy: number, sz: number, flip = false,
+    ): void => {
+      partM.compose(new THREE.Vector3(x, y, z), flip ? qFlip : partQ, new THREE.Vector3(sx, sy, sz));
+      parts.push(geo.applyMatrix4(partM));
+    };
     const PIPES = 11;
     for (let k = 0; k < PIPES; k++) {
       const tk = tBase + (k - (PIPES - 1) / 2) * 0.0042;
@@ -159,29 +172,23 @@ export class Landmarks {
       const H = ceilY - floorY;
       const pipeR = 0.34 + rhythm * 0.18 + rnd(k * 9.7) * 0.08;
       const h = full ? H : H * (0.42 + rhythm * 0.3 + rnd(k * 11.1) * 0.18);
-      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(pipeR * 0.84, pipeR, h, 12, 3), mat);
-      pipe.position.set(base.x, floorY + h / 2, base.z);
-      g.add(pipe);
+      addPart(new THREE.CylinderGeometry(pipeR * 0.84, pipeR, h, 12, 3),
+        base.x, floorY + h / 2, base.z, 1, 1, 1);
       // 基座裙：一小段滴水石埋住柱脚（流石在长柱；裙径克制——滴水石几何带宽裙边）
-      const skirtK = new THREE.Mesh(dripstoneGeometry(6.7 + k, 10, 12), mat);
-      skirtK.scale.set(pipeR * 1.6, h * 0.16, pipeR * 1.6);
-      skirtK.position.set(base.x, floorY, base.z);
-      g.add(skirtK);
+      addPart(dripstoneGeometry(6.7 + k, 10, 12),
+        base.x, floorY, base.z, pipeR * 1.6, h * 0.16, pipeR * 1.6);
       if (!full) {
         // 短柱顶加尖帽：石笋还在往上长——高低差读出「音阶」
-        const cap = new THREE.Mesh(dripstoneGeometry(4.1 + k, 10, 12), mat);
-        cap.scale.set(pipeR * 1.3, H * 0.1 + rnd(k * 3.3) * 0.5, pipeR * 1.3);
-        cap.position.set(base.x, floorY + h - 0.05, base.z);
-        g.add(cap);
+        addPart(dripstoneGeometry(4.1 + k, 10, 12),
+          base.x, floorY + h - 0.05, base.z, pipeR * 1.3, H * 0.1 + rnd(k * 3.3) * 0.5, pipeR * 1.3);
       } else {
         // 全柱顶裙：与天花相接处的钟乳裙边
-        const top = new THREE.Mesh(dripstoneGeometry(9.3 + k, 10, 12), mat);
-        top.scale.set(pipeR * 1.5, h * 0.14, pipeR * 1.5);
-        top.rotation.x = Math.PI;
-        top.position.set(base.x, ceilY, base.z);
-        g.add(top);
+        addPart(dripstoneGeometry(9.3 + k, 10, 12),
+          base.x, ceilY, base.z, pipeR * 1.5, h * 0.14, pipeR * 1.5, true);
       }
     }
+    const merged = mergeGeometries(parts);
+    if (merged) g.add(new THREE.Mesh(merged, mat));
     // 帷幕流石裙：柱列基座连成一条流石台（读作一面墙而非散点），沉入地板
     const skirtGeo = boulderGeometry(17.9, 2);
     const skirt = new THREE.InstancedMesh(skirtGeo, mat, 9);
