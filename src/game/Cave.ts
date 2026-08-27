@@ -143,6 +143,12 @@ export class Cave {
   readonly zoneLights: THREE.PointLight[] = [];
   /** 道具辉光灯（半径小，用更近的剔除距离） */
   readonly propLights: THREE.PointLight[] = [];
+  /**
+   * M5-L1 巡检审计：建面时被镂空且**非天窗/井口/裂隙类白名单**的四边形中心
+   * （接缝去重/支线洞口/支线端裁剪）。__dd.scan() 逐个射线验证：
+   * 穿过这些洞必须能打到「另一侧的岩壁」，否则就是透天/破面。
+   */
+  readonly skipAudit: { pathId: number; t: number; c: THREE.Vector3 }[] = [];
 
   /** 主脉便捷别名（兼容 Story/Scare 旧接口） */
   get curve(): THREE.CatmullRomCurve3 {
@@ -406,6 +412,7 @@ export class Cave {
           (pos[a * 3 + 2] + pos[b * 3 + 2] + pos[(a + 1) * 3 + 2] + pos[(b + 1) * 3 + 2]) / 4,
         );
         let skip = false;
+        let audit = false; // 白名单外的镂空（接缝/洞口）需要 __dd.scan() 射线复验
 
         if (isMain) {
           // ① 天窗：水面以上全部敞开（天坑开口）
@@ -421,7 +428,7 @@ export class Cave {
             const t = ringT[i];
             if (t < 0.09 || t > 0.91) {
               const cont = this.containmentExcluding(main, qc, t, 0.09);
-              if (cont < -0.6) skip = true;
+              if (cont < -0.6) { skip = true; audit = true; }
             }
           }
           // ③ 支线洞口（双开口支线两端都开孔；粗筛半径 20 覆盖大厅穿墙点；
@@ -435,6 +442,7 @@ export class Cave {
                 const hit = this.nearestOnPath(s, qc, null);
                 if (hit.dist - s.radiusAt(hit.t) < -0.35 && (hit.t < 0.25 || hit.t > 0.75)) {
                   skip = true;
+                  audit = true;
                   break;
                 }
               }
@@ -453,10 +461,13 @@ export class Cave {
           const t = ringT[i];
           if (t < 0.2 || t > 0.8) {
             const hit = this.nearestOnPath(main, qc, null);
-            if (hit.dist - main.radiusAt(hit.t) < -1.2) skip = true;
+            if (hit.dist - main.radiusAt(hit.t) < -1.2) { skip = true; audit = true; }
           }
         }
 
+        if (skip && audit) {
+          this.skipAudit.push({ pathId: path.id, t: ringT[i], c: qc.clone() });
+        }
         if (!skip) idx.push(a, b, a + 1, b, b + 1, a + 1);
       }
     }

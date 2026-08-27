@@ -680,17 +680,30 @@ export class Landmarks {
     const meshes = variants.map((g) => new THREE.InstancedMesh(g, mat, per));
     const m = new THREE.Matrix4();
     const quat = new THREE.Quaternion();
+    // 确定性伪随机（M5-L1）：巡检可复现；巨石按 N/B 框架贴壁布置，
+    // 保证游泳走廊净空（此前世界坐标随机散布会把巨石怼在轴上——玩家无巨石碰撞，直接穿石）
+    const rnd = (k: number): number => {
+      const s = Math.sin(k * 127.1 + 311.7) * 43758.5453;
+      return s - Math.floor(s);
+    };
     for (let i = 0; i < per * variants.length; i++) {
-      const t = t0 + Math.random() * (t1 - t0);
-      const { p: center } = cave.frameAt(0, t);
+      const t = t0 + rnd(i * 3.1) * (t1 - t0);
+      const { p: center, N, B } = cave.frameAt(0, t);
       const r = cave.radiusAt(t);
-      const posv = center.clone();
-      posv.x += (Math.random() - 0.5) * r * 1.4;
-      posv.y += -r * 0.5 + Math.random() * r * 0.9;
-      posv.z += (Math.random() - 0.5) * r * 1.4;
-      const s = 0.5 + Math.random() * 1.4;
-      quat.setFromEuler(new THREE.Euler(Math.random() * 3, Math.random() * 3, Math.random() * 3));
-      m.compose(posv, quat, new THREE.Vector3(s, s * (0.7 + Math.random() * 0.6), s));
+      const ang = rnd(i * 7.7) * Math.PI * 2;
+      // 贴壁分布：62%~117% 半径（塌方读作「从壁上崩下来堆在四周」）
+      const d = r * (0.62 + rnd(i * 5.3) * 0.55);
+      // 底部沉降偏置：更多石头堆在洞底
+      const sink = -r * 0.22 * rnd(i * 9.1);
+      const posv = center.clone()
+        .addScaledVector(N, Math.cos(ang) * d)
+        .addScaledVector(B, Math.sin(ang) * d);
+      posv.y += sink;
+      // 走廊净空：靠近轴的石头按距离缩小（净空半径 42% r）
+      let s = 0.5 + rnd(i * 11.3) * 1.4;
+      s = Math.min(s, Math.max(0.3, (d - r * 0.42) * 0.9));
+      quat.setFromEuler(new THREE.Euler(rnd(i * 2.3) * 3, rnd(i * 4.9) * 3, rnd(i * 6.1) * 3));
+      m.compose(posv, quat, new THREE.Vector3(s, s * (0.7 + rnd(i * 8.3) * 0.6), s));
       meshes[i % variants.length].setMatrixAt(Math.floor(i / variants.length), m);
     }
     for (const mesh of meshes) this.group.add(mesh);

@@ -227,6 +227,7 @@ export class Game {
         'perf()': '性能 HUD 开关（FPS/drawcall/三角形/活跃灯数）',
         'stats()/adapt(on)': '性能指标快照 / 自适应 DPR 开关（截图脚本应关）',
         'pick()': '准星射线：命中对象层级/距离/世界坐标',
+        'scan()': '全管道巡检：破面/透天射线复验 + 通路阻塞 + 道具可达性（M5-L1）',
         'jump(t)/zone(n,f)': '主脉进度传送 / 分区比例传送',
         'look(yaw,pitch)/lookWorld(xyz)/lookAncient()': '视角控制',
         'move(x,y,z)': '直接移动（含支线，自动吸附路径）',
@@ -345,6 +346,7 @@ export class Game {
           geo: (h.object as THREE.Mesh).geometry?.type ?? '?',
         };
       },
+      scan: () => this.runScan(),
       look: (yaw: number, pitch: number) => {
         this.player.yaw = yaw;
         this.player.pitch = Math.max(-1.35, Math.min(1.35, pitch));
@@ -437,6 +439,136 @@ export class Game {
         window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }));
       },
     };
+  }
+
+  /**
+   * M5-L1 全管道巡检（§3.11）：
+   * A) 镂空审计——接缝去重/支线洞口的镂空四边形，穿洞射线必须命中另一侧岩壁，
+   *    否则就是透天/破面（天窗水柱/深井/裂隙方向白名单）；
+   * B) 通路阻塞——沿每条路径轴向逐段射线，游泳走廊必须畅通；
+   * C) 道具可达性——触发球必须与玩家软约束可达区相交，否则交互失效。
+   */
+  private runScan(): { critical: string[]; warn: string[]; holesChecked: number; raysUsed: number } {
+    const critical: string[] = [];
+    const warn: string[] = [];
+    const targets: THREE.Object3D[] = [this.cave.group, this.landmarks.group];
+    const rc = new THREE.Raycaster();
+    rc.camera = this.player.camera; // Sprite.raycast 需要相机引用
+    const opaqueHit = (o: THREE.Vector3, d: THREE.Vector3, far: number): { d: number; what: string } => {
+      rc.set(o, d);
+      rc.near = 0.01;
+      rc.far = far;
+      const hits = rc.intersectObjects(targets, true);
+      for (const x of hits) {
+        if (x.object instanceof THREE.Points || x.object instanceof THREE.Sprite) continue;
+        const m = (x.object as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+        const mm = Array.isArray(m) ? m[0] : m;
+        if (mm && mm.transparent) continue;
+        return { d: x.distance, what: x.object.name || (x.object as THREE.Mesh).geometry?.type || '?' };
+      }
+      return { d: -1, what: '' };
+    };
+
+    // ---- A) 镂空审计（1.6m 网格去重：相邻四边形只验一次） ----
+    const seen = new Set<string>();
+    const pool = this.cave.poolCenter;
+    let holesChecked = 0;
+    let raysUsed = 0;
+    for (const rec of this.cave.skipAudit) {
+      const key = `${Math.round(rec.c.x / 1.6)},${Math.round(rec.c.y / 1.6)},${Math.round(rec.c.z / 1.6)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      holesChecked++;
+      const { p } = this.cave.frameAt(rec.pathId, rec.t);
+      const dir = rec.c.clone().sub(p);
+      const inDist = dir.length();
+      if (inDist < 1e-4) continue;
+      dir.multiplyScalar(1 / inDist);
+      const far = inDist + Math.max(30, this.cave.paths[rec.pathId].radiusAt(rec.t) * 4);
+      raysUsed++;
+      if (opaqueHit(p, dir, far).d < 0) {
+        const nearPit = this.segDistTo(p, dir, far, this.cave.pitCenter) < 5.2;
+        const nearCrack = this.segDistTo(p, dir, far, this.cave.crackPoint) < 2.4;
+        // 管内行走白名单：洞后每 1.2m 采样，若射线始终跑在某条管道内部
+        // （或先进入管内再穿出天窗水柱），这是合法连通而非透天
+        let escaped = false;
+        if (!nearPit && !nearCrack) {
+          const pt = new THREE.Vector3();
+          for (let s = inDist + 0.4; s < far; s += 1.2) {
+            pt.copy(p).addScaledVector(dir, s);
+            if (pt.y > -0.4 && Math.hypot(pt.x - pool.x, pt.z - pool.z) < 9) break; // 天窗水柱出水
+            const h = this.cave.resolve(pt, rec.pathId, rec.t);
+            if (h.containment > 0.25) { escaped = true; break; }
+          }
+        }
+        if (!nearPit && !nearCrack && escaped) {
+          critical.push(
+            `HOLE path${rec.pathId} t=${rec.t.toFixed(3)} @(${rec.c.x.toFixed(1)},${rec.c.y.toFixed(1)},${rec.c.z.toFixed(1)})`,
+          );
+        }
+      }
+    }
+
+    // ---- B) 通路阻塞：轴向走廊 5 射线（轴 + N/B ±35% 半径）；全部被挡才算堵死 ----
+    for (const path of this.cave.paths) {
+      const steps = path.id === 0 ? 160 : 30;
+      for (let i = 0; i < steps; i++) {
+        const f0 = path.id === 0 ? i / steps : 0.04 + (i / steps) * 0.9;
+        const f1 = path.id === 0 ? (i + 1) / steps : 0.04 + ((i + 1) / steps) * 0.9;
+        const fr = this.cave.frameAt(path.id, f0);
+        const b = this.cave.frameAt(path.id, f1).p;
+        if (fr.p.y > -0.4 || b.y > -0.4) continue; // 水面以上（天窗段）不算游泳走廊
+        const seg = b.clone().sub(fr.p);
+        const len = seg.length() - 0.15;
+        if (len <= 0.2) continue;
+        seg.normalize();
+        const off = path.radiusAt(f0) * 0.35;
+        const lanes: THREE.Vector3[] = [
+          fr.p.clone(),
+          fr.p.clone().addScaledVector(fr.N, off),
+          fr.p.clone().addScaledVector(fr.N, -off),
+          fr.p.clone().addScaledVector(fr.B, off),
+          fr.p.clone().addScaledVector(fr.B, -off),
+        ];
+        let blocked = 0;
+        let what = '';
+        for (const o of lanes) {
+          raysUsed++;
+          const h = opaqueHit(o, seg, len);
+          if (h.d >= 0) { blocked++; what = what || h.what; }
+        }
+        if (blocked === lanes.length) {
+          critical.push(`BLOCK path${path.id} t=${f0.toFixed(3)}→${f1.toFixed(3)} [${what}]`);
+        } else if (blocked >= 3) {
+          warn.push(`NARROW path${path.id} t=${f0.toFixed(3)} ${blocked}/5 [${what}]`);
+        }
+      }
+    }
+
+    // ---- C) 道具可达性 ----
+    const trigR: Record<string, number> = { slate: 2.4, tank: 2.2, tankEmpty: 2.2 };
+    const wp = new THREE.Vector3();
+    for (const prop of this.cave.props) {
+      prop.mesh.getWorldPosition(wp);
+      const hit = this.cave.resolve(wp, prop.pathId, prop.t);
+      const maxR = hit.radius - (0.55 + hit.radius * 0.1);
+      const tr = trigR[prop.kind] ?? 3.4;
+      if (hit.dist - maxR > tr - 0.2) {
+        critical.push(
+          `UNREACHABLE ${prop.kind} path${prop.pathId} t=${prop.t.toFixed(2)} dist=${hit.dist.toFixed(1)} maxR=${maxR.toFixed(1)}`,
+        );
+      } else if (hit.containment > 0.4) {
+        warn.push(`PROP-OUTSIDE ${prop.kind} path${prop.pathId} t=${prop.t.toFixed(2)} cont=${hit.containment.toFixed(1)}`);
+      }
+    }
+    return { critical, warn, holesChecked, raysUsed };
+  }
+
+  /** 点到射线段的最近距离（scan 白名单判定用） */
+  private segDistTo(o: THREE.Vector3, dir: THREE.Vector3, far: number, p: THREE.Vector3): number {
+    const toP = p.clone().sub(o);
+    const s = THREE.MathUtils.clamp(toP.dot(dir), 0, far);
+    return toP.addScaledVector(dir, -s).length();
   }
 
   /** 调试：把视线对准世界点 */
