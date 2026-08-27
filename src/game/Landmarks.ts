@@ -28,6 +28,10 @@ export class Landmarks {
   readonly altarLight: THREE.PointLight;
   private altarGems: THREE.Mesh[] = [];
   private haloMats: THREE.MeshBasicMaterial[] = [];
+  private haloBaseOp: number[] = [];
+  /** M5-L4 卤水搅动强度（0..1，指数衰减） */
+  private haloStir = 0;
+  private lastTime = 0;
   private brokenLineEnd: THREE.Mesh | null = null;
   /** M4-L8 黑井呼吸幽光（膜+柱）：缓慢脉动的不祥光 */
   private pitBreath: THREE.MeshBasicMaterial[] = [];
@@ -500,6 +504,7 @@ export class Landmarks {
       mat.map.repeat.set(sc, sc);
       mat.map.wrapS = mat.map.wrapT = THREE.RepeatWrapping;
       this.haloMats.push(mat);
+      this.haloBaseOp.push(op);
       const plane = new THREE.Mesh(new THREE.CircleGeometry(this.haloRadius, 36), mat);
       plane.rotation.x = -Math.PI / 2;
       plane.position.set(center.x, y + dy, center.z);
@@ -1098,11 +1103,24 @@ export class Landmarks {
     }
   }
 
+  /** M5-L4 玩家搅动卤水跃层：云面涌动加速 + 短暂增浊，随后 ~5s 平复 */
+  stirHalo(strength: number): void {
+    this.haloStir = Math.min(1, this.haloStir + strength);
+  }
+
   update(time: number): void {
-    // 卤水云面缓慢流动
+    const dt = Math.min(0.1, Math.max(0, time - this.lastTime));
+    this.lastTime = time;
+    this.haloStir *= Math.exp(-0.65 * dt);
+    const stir = this.haloStir < 0.01 ? 0 : this.haloStir;
+    // 卤水云面缓慢流动（被搅动时流速与浊度短暂上冲）
     for (let i = 0; i < this.haloMats.length; i++) {
       const map = this.haloMats[i].map!;
-      map.offset.set(time * 0.004 * (i + 1), time * 0.0026 * (i + 1));
+      const k = 1 + stir * 7;
+      map.offset.set(time * 0.004 * (i + 1) * k, time * 0.0026 * (i + 1) * k);
+      if (this.haloBaseOp.length === this.haloMats.length) {
+        this.haloMats[i].opacity = this.haloBaseOp[i] * (1 + stir * 0.8);
+      }
     }
     // 供品玉石呼吸发光
     for (let i = 0; i < this.altarGems.length; i++) {

@@ -84,6 +84,7 @@ export class Ecology {
 
   private plankton: THREE.Points;
   private pkPos: Float32Array;
+  private pkHome: Float32Array = new Float32Array(0);
   private pkGlow: Float32Array;
   private pkCol: Float32Array;
 
@@ -196,6 +197,7 @@ export class Ecology {
       this.pkPos[i * 3 + 2] = c.z + Math.sin(ang) * rr;
       this.pkGlow[i] = 0;
     }
+    this.pkHome = this.pkPos.slice();
     const pkGeo = new THREE.BufferGeometry();
     pkGeo.setAttribute('position', new THREE.BufferAttribute(this.pkPos, 3));
     pkGeo.setAttribute('color', new THREE.BufferAttribute(this.pkCol, 3));
@@ -649,16 +651,19 @@ export class Ecology {
     };
   }
 
-  update(dt: number, time: number, playerPos: THREE.Vector3, playerSpeed: number): void {
+  update(
+    dt: number, time: number, playerPos: THREE.Vector3, playerSpeed: number,
+    light?: { on: boolean; pos: THREE.Vector3; dir: THREE.Vector3 },
+  ): void {
     // M4-L5 按距节流：雾外（>45~55m）的群体每 3~4 帧才刷一次行为与实例矩阵——
     // 观感无差（根本看不见），省掉黑水另一端的矩阵合成与 attribute 上传
     this.frameNo++;
     const fishFar = playerPos.distanceToSquared(this.fishCenter) > 45 * 45;
-    if (!fishFar || this.frameNo % 4 === 0) this.updateFish(dt, time, playerPos);
+    if (!fishFar || this.frameNo % 4 === 0) this.updateFish(dt, time, playerPos, light);
     this.updateBlind(dt, time, playerPos);
     this.updateCruisers(dt, time, playerPos);
     const pkFar = playerPos.distanceToSquared(this.planktonCenter) > 60 * 60;
-    if (!pkFar || this.frameNo % 3 === 0) this.updatePlankton(dt, time, playerPos, playerSpeed);
+    if (!pkFar || this.frameNo % 3 === 0) this.updatePlankton(dt, time, playerPos, playerSpeed, light);
     const jellyFar = playerPos.distanceToSquared(this.jellyCenter) > 55 * 55;
     if (!jellyFar || this.frameNo % 4 === 0) this.updateJellies(dt, time, playerPos);
     if (this.frameNo % 2 === 0) this.updateVents(dt * 2); // 气泡上涌半帧率足够平滑
@@ -668,11 +673,18 @@ export class Ecology {
     this.updateBats(dt, time, playerPos);
   }
 
-  private updateFish(dt: number, time: number, playerPos: THREE.Vector3): void {
+  private updateFish(
+    dt: number, time: number, playerPos: THREE.Vector3,
+    light?: { on: boolean; pos: THREE.Vector3; dir: THREE.Vector3 },
+  ): void {
     if (!this.fishMesh) return;
     const c = this.fishCenter;
     const prev = new THREE.Vector3();
     const next = new THREE.Vector3();
+    // M5-L4 光束惊散：手电光锥扫进鱼群才计算逐鱼束距（玩家在 26m 内且光轴穿过群域）
+    const beamActive = !!light && light.on && playerPos.distanceToSquared(c) < 26 * 26
+      && this.rayPointDist(light.pos, light.dir, c) < 6.5;
+    const toF = new THREE.Vector3();
     for (let i = 0; i < this.fish.length; i++) {
       const f = this.fish[i];
       f.ang += f.speed * dt * (1 + f.scatter.length() * 0.7);
@@ -683,6 +695,15 @@ export class Ecology {
       if (d2 < 16) {
         const away = prev.clone().sub(playerPos).normalize().multiplyScalar((4 - Math.sqrt(d2)) * 2.2);
         f.scatter.add(away.multiplyScalar(dt * 4));
+      }
+      // 光束直射惊散：束轴 1.8m 内的鱼被垂直于光轴推开（银汉鱼避强光的真实反应）
+      if (beamActive) {
+        const s = toF.copy(prev).sub(light!.pos).dot(light!.dir);
+        if (s > 0.5) {
+          toF.copy(prev).sub(light!.pos).addScaledVector(light!.dir, -s); // 束轴 → 鱼的垂向
+          const bd = toF.length();
+          if (bd < 1.8) f.scatter.addScaledVector(toF.normalize(), (1.8 - bd) * 3.4 * dt * 4);
+        }
       }
       f.scatter.multiplyScalar(Math.exp(-1.4 * dt));
       prev.add(f.scatter);
@@ -756,9 +777,17 @@ export class Ecology {
     this.cruiserMesh.instanceMatrix.needsUpdate = true;
   }
 
-  private updatePlankton(dt: number, time: number, playerPos: THREE.Vector3, playerSpeed: number): void {
+  private updatePlankton(
+    dt: number, time: number, playerPos: THREE.Vector3, playerSpeed: number,
+    light?: { on: boolean; pos: THREE.Vector3; dir: THREE.Vector3 },
+  ): void {
     const n = this.pkGlow.length;
     const excite = playerSpeed > 1.1;
+    // M5-L4 趋光：光锥内 3.2m 的发光体缓缓向束轴聚拢并点亮（黑水手电的"雪花隧道"），
+    // 关灯后向初始位漂回——群体不会被永久拖走
+    const lightOn = !!light && light.on;
+    const rel = new THREE.Vector3();
+    let moved = false;
     for (let i = 0; i < n; i++) {
       // 扰动激发
       if (excite) {
@@ -766,6 +795,37 @@ export class Ecology {
         const dy = this.pkPos[i * 3 + 1] - playerPos.y;
         const dz = this.pkPos[i * 3 + 2] - playerPos.z;
         if (dx * dx + dy * dy + dz * dz < 6.5) this.pkGlow[i] = 1;
+      }
+      if (lightOn) {
+        rel.set(
+          this.pkPos[i * 3] - light!.pos.x,
+          this.pkPos[i * 3 + 1] - light!.pos.y,
+          this.pkPos[i * 3 + 2] - light!.pos.z,
+        );
+        const s = rel.dot(light!.dir);
+        if (s > 1 && s < 22) {
+          rel.addScaledVector(light!.dir, -s); // 束轴垂向
+          const bd = rel.length();
+          if (bd < 3.2 && bd > 0.25) {
+            const pull = (1 - bd / 3.2) * 0.55 * dt;
+            this.pkPos[i * 3] -= rel.x / bd * pull;
+            this.pkPos[i * 3 + 1] -= rel.y / bd * pull;
+            this.pkPos[i * 3 + 2] -= rel.z / bd * pull;
+            this.pkGlow[i] = Math.min(1, this.pkGlow[i] + dt * 1.6);
+            moved = true;
+          }
+        }
+      } else {
+        // 回漂
+        const hx = this.pkHome[i * 3] - this.pkPos[i * 3];
+        const hy = this.pkHome[i * 3 + 1] - this.pkPos[i * 3 + 1];
+        const hz = this.pkHome[i * 3 + 2] - this.pkPos[i * 3 + 2];
+        if (hx * hx + hy * hy + hz * hz > 0.01) {
+          this.pkPos[i * 3] += hx * dt * 0.3;
+          this.pkPos[i * 3 + 1] += hy * dt * 0.3;
+          this.pkPos[i * 3 + 2] += hz * dt * 0.3;
+          moved = true;
+        }
       }
       this.pkGlow[i] *= Math.exp(-1.1 * dt);
       const twinkle = 0.05 + 0.04 * Math.sin(time * 1.7 + i * 2.3);
@@ -775,6 +835,30 @@ export class Ecology {
       this.pkCol[i * 3 + 2] = twinkle + g * 1.0;
     }
     (this.plankton.geometry.attributes.color as THREE.BufferAttribute).needsUpdate = true;
+    if (moved) (this.plankton.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+  }
+
+  /** 点到射线的垂距（束轴粗判用） */
+  private rayPointDist(o: THREE.Vector3, d: THREE.Vector3, p: THREE.Vector3): number {
+    const rel = p.clone().sub(o);
+    const s = Math.max(0, rel.dot(d));
+    return rel.addScaledVector(d, -s).length();
+  }
+
+  /** 调试：气泡帘柱底座坐标（测试/取景用） */
+  ventInfo(): number[][] {
+    return this.vents.map((v) => [+v.base.x.toFixed(1), +v.base.y.toFixed(1), +v.base.z.toFixed(1), +v.h.toFixed(1)]);
+  }
+
+  /** M5-L4 气泡帘穿越查询：玩家在某条气泡柱内时返回柱底座（冷却与演出由 Game 管） */
+  ventAt(p: THREE.Vector3): THREE.Vector3 | null {
+    for (const v of this.vents) {
+      if (!v.pts.visible) continue;
+      if (p.y < v.base.y - 0.4 || p.y > v.base.y + v.h + 0.6) continue;
+      const dx = p.x - v.base.x, dz = p.z - v.base.z;
+      if (dx * dx + dz * dz < 1.1) return v.base;
+    }
+    return null;
   }
 
   private updateJellies(dt: number, time: number, playerPos: THREE.Vector3): void {

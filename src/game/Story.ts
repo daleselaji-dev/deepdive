@@ -1,5 +1,5 @@
 import type { Cave, CaveProp } from './Cave';
-import type * as THREE from 'three';
+import * as THREE from 'three';
 
 /**
  * 叙事触发系统（docs/GAME_DESIGN.md §6「人为搞砸」）。
@@ -229,11 +229,25 @@ export class Story {
     return this.tankProps.indexOf(prop);
   }
 
+  /** 调试：第 i 个遗物的世界坐标与已观察态（测试用） */
+  relicPos(i: number): { pos: number[]; seen: boolean } | null {
+    const r = this.relicProps[i];
+    if (!r) return null;
+    return { pos: r.prop.mesh.position.toArray().map((v) => +v.toFixed(2)), seen: r.seen };
+  }
+
   static tankMeta(index: number): { empty: boolean; text: string } {
     return TANKS[Math.max(0, Math.min(TANKS.length - 1, index))];
   }
 
-  update(playerT: number, playerPos: THREE.Vector3, ctx: StoryContext): void {
+  /**
+   * @param gaze M5-L4 遗物观察交互：准星对准 4.5m 内的遗物出提示，按 F（触屏为自动）触发观察文案。
+   *             wantPrompt 由 Story 写回——Game 汇总各系统的提示优先级后统一驱动 HUD。
+   */
+  update(
+    playerT: number, playerPos: THREE.Vector3, ctx: StoryContext,
+    gaze?: { fwd: THREE.Vector3; interact: boolean; touchAuto: boolean },
+  ): string | null {
     for (const node of this.nodes) {
       if (!node.fired && playerT >= node.t) {
         node.fired = true;
@@ -254,11 +268,32 @@ export class Story {
         ctx.tank(t);
       }
     }
+    // 遗物：从「走过就弹」升级为主动观察——准星 ~14° 内 + 4.5m 内出提示，F 触发；
+    // 触屏无 F 键，退回 2.4m 贴近自动触发
+    let prompt: string | null = null;
+    const toR = new THREE.Vector3();
     for (const r of this.relicProps) {
-      if (!r.seen && r.prop.mesh.position.distanceToSquared(playerPos) < 3.4 * 3.4) {
+      if (r.seen) continue;
+      const d2 = r.prop.mesh.position.distanceToSquared(playerPos);
+      if (d2 > 4.5 * 4.5) continue;
+      if (gaze) {
+        toR.copy(r.prop.mesh.position).sub(playerPos).normalize();
+        const aligned = toR.dot(gaze.fwd) > 0.97;
+        const auto = gaze.touchAuto && d2 < 2.4 * 2.4;
+        if (aligned || auto) {
+          if (gaze.interact || auto) {
+            r.seen = true;
+            ctx.env(r.text, 7);
+          } else {
+            prompt = 'F · 观 察';
+          }
+          break;
+        }
+      } else if (d2 < 3.4 * 3.4) { // 无视角信息（兼容旧调用）：沿用贴近触发
         r.seen = true;
         ctx.env(r.text, 7);
       }
     }
+    return prompt;
   }
 }

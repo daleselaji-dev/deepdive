@@ -6,6 +6,7 @@ export class InputManager {
   moveZ = 0; // 前后 -1..1（1 = 前进）
   sprint = false;
   readonly touch = isTouchDevice();
+  private interactEdge = false;
 
   private lookDX = 0;
   private lookDY = 0;
@@ -27,6 +28,7 @@ export class InputManager {
       if (!this.enabled) return;
       this.keys.add(e.code);
       if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') this.sprint = true;
+      if (e.code === 'KeyF' && !e.repeat) this.interactEdge = true;
     });
     window.addEventListener('keyup', (e) => {
       this.keys.delete(e.code);
@@ -131,6 +133,13 @@ export class InputManager {
     this.lookDX = 0;
     this.lookDY = 0;
     return d;
+  }
+
+  /** F 观察键的一次性边沿（M5-L4 遗物观察交互） */
+  consumeInteract(): boolean {
+    const v = this.interactEdge;
+    this.interactEdge = false;
+    return v;
   }
 
   enable(): void {

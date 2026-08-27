@@ -445,6 +445,37 @@ export class AudioEngine {
     plink(t + 0.16, 0.018);
   }
 
+  /** M5-L4 气泡帘穿越：密集小气泡贴身炸开的嘶沙声（高频窄带噪声 + 快颤抖调制） */
+  ventFizz(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = this.now();
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuffer(1.4);
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(2400, t);
+    bp.frequency.exponentialRampToValueAtTime(4200, t + 0.5);
+    bp.Q.value = 1.6;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.001, t);
+    g.gain.exponentialRampToValueAtTime(0.16, t + 0.08);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 1.3);
+    // 气泡颗粒感：14Hz 抖动调制
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 14;
+    const lg = ctx.createGain();
+    lg.gain.value = 0.06;
+    lfo.connect(lg);
+    lg.connect(g.gain);
+    src.connect(bp);
+    bp.connect(g);
+    g.connect(this.muffleFilter);
+    src.start(t);
+    lfo.start(t);
+    lfo.stop(t + 1.4);
+  }
+
   /** 破水面：宽频水花 + 空气骤然打开 */
   breach(): void {
     const ctx = this.ctx;

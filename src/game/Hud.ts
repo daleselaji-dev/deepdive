@@ -32,8 +32,10 @@ export class Hud {
     zonebanner: document.getElementById('zonebanner')!,
     zoneCn: document.getElementById('zone-cn')!,
     zoneEn: document.getElementById('zone-en')!,
+    prompt: document.getElementById('prompt')!,
   };
   private subTimer: number | null = null;
+  private promptText: string | null = null;
   private zoneTimer: number | null = null;
   private slateResolve: (() => void) | null = null;
 
@@ -148,6 +150,18 @@ export class Hud {
   clearSubtitle(): void {
     if (this.subTimer !== null) window.clearTimeout(this.subTimer);
     this.el.subtitle.classList.add('hidden');
+  }
+
+  /** 准星交互提示（每帧驱动；文本不变时零 DOM 写入）。null = 隐藏 */
+  prompt(text: string | null): void {
+    if (text === this.promptText) return;
+    this.promptText = text;
+    if (text === null) {
+      this.el.prompt.classList.add('hidden');
+    } else {
+      this.el.prompt.textContent = text;
+      this.el.prompt.classList.remove('hidden');
+    }
   }
 
   /** 分区进入横幅：中文区名 + 英文/深度副标，淡入淡出 */

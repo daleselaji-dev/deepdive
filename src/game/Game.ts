@@ -135,9 +135,25 @@ export class Game {
   private nextDripAt = 0;
   private nextRumbleAt = 45;
 
-  // M4-L6 自然观察手记
+  // M4-L6 自然观察手记（M5-L4 升级为准星注视观察）
   private noteTimer = 0;
   private notesSeen = new Set<string>();
+  private gazeNoteKey: string | null = null;
+  private gazeNoteAcc = 0;
+  private gazeCandidate: { key: string; pos: THREE.Vector3 } | null = null;
+
+  // M5-L4 生态可交互：光束缓存 / 气泡帘冷却 / 卤水搅动
+  private beamPos = new THREE.Vector3();
+  private beamDir = new THREE.Vector3(0, 0, -1);
+  /** 相机实时朝向（准星判定用——beamDir 带手持惯性，注视判定用它会慢半拍） */
+  private camFwd = new THREE.Vector3(0, 0, -1);
+  private ventCoolAt = 0;
+  private ventTold = false;
+  private ventCross = 0;
+  private haloStirTold = false;
+  private haloStirs = 0;
+  private prevY = 0;
+  private relicPrompt: string | null = null;
 
   // M4-L5 自适应降档：低帧持续 → 阶梯降 DPR；富余持续 → 缓慢回升
   private fpsEma = 60;
@@ -412,6 +428,16 @@ export class Game {
         zone: this.cave.zoneAt(this.player.mainT),
       }),
       fish: () => this.ecology.fishInfo(),
+      vents: () => this.ecology.ventInfo(),
+      gaze: () => ({
+        key: this.gazeNoteKey,
+        acc: +this.gazeNoteAcc.toFixed(2),
+        cand: this.gazeCandidate?.key ?? null,
+        beam: this.beamDir.toArray().map((v) => +v.toFixed(2)),
+        ventCross: this.ventCross,
+        haloStirs: this.haloStirs,
+      }),
+      relicPos: (i: number) => this.story.relicPos(i),
       creature: (n: Parameters<Ecology['probe']>[0], i = 0) => this.ecology.probe(n, i),
       creatureNear: (n: Parameters<Ecology['probe']>[0]) =>
         this.ecology.probeNearest(n, this.player.position),
@@ -579,9 +605,9 @@ export class Game {
     return toP.addScaledVector(dir, -s).length();
   }
 
-  /** 调试：把视线对准世界点 */
+  /** 调试：把视线对准世界点（用 player.position——同帧 move 后相机还没跟上，用相机位会瞄向旧点） */
   private faceWorldPoint(v: THREE.Vector3): void {
-    const d = v.clone().sub(this.player.camera.position).normalize();
+    const d = v.clone().sub(this.player.position).normalize();
     this.player.pitch = Math.asin(THREE.MathUtils.clamp(d.y, -1, 1));
     this.player.yaw = Math.atan2(-d.x, -d.z);
   }
@@ -886,11 +912,15 @@ export class Game {
     this.landmarks.update(this.time);
     this.landmarks.cullByDistance(this.player.camera.position);
     this.adaptDPR(dt);
+    // 手电光束（M5-L4 生态趋光/惊散用）：位置与朝向取 lightRig（带惯性的手持光轴）
+    this.beamDir.set(0, 0, -1).applyQuaternion(this.player.lightRig.quaternion);
+    this.beamPos.copy(this.player.lightRig.position);
     this.ecology.update(
       dt,
       this.time,
       this.state === 'title' ? this.player.camera.position : this.player.position,
       this.lastSpeed,
+      { on: this.state === 'play' && this.player.flashlight.intensity > 5, pos: this.beamPos, dir: this.beamDir },
     );
     const sightProg = this.ancient.update(dt, this.time, this.player.position);
     if (this.state === 'play' && this.phase === 'sighting') this.sightingBeats(sightProg);
@@ -1124,8 +1154,50 @@ export class Game {
     }
 
     if (this.mode === 'story' && (this.phase === 'descent' || this.phase === 'return')) {
-      this.story.update(this.player.mainT, this.player.position, this.storyCtx);
+      this.relicPrompt = this.story.update(this.player.mainT, this.player.position, this.storyCtx, {
+        fwd: this.camFwd.set(0, 0, -1).applyQuaternion(this.player.camera.quaternion),
+        interact: this.input.consumeInteract(),
+        touchAuto: this.input.touch,
+      });
+    } else {
+      this.relicPrompt = null;
     }
+    // 准星提示优先级：遗物 F 观察 > 注视观察进度
+    let prompt = this.relicPrompt;
+    if (!prompt && this.gazeNoteKey && this.gazeNoteAcc > 0.25) {
+      const pct = Math.min(9, Math.floor((this.gazeNoteAcc / 1.4) * 10));
+      prompt = `观察中 ${'●'.repeat(pct)}${'○'.repeat(9 - pct)}`;
+    }
+    this.hud.prompt(prompt);
+
+    // ---- M5-L4 气泡帘穿越：帘内被气泡裹住——嘶声 + 上托 + 视野口的密集泡串 ----
+    const vent = this.ecology.ventAt(this.player.position);
+    if (vent && this.time >= this.ventCoolAt) {
+      this.ventCoolAt = this.time + 4.5;
+      this.ventCross++;
+      this.player.velocity.y += 0.55; // 上涌气泡的浮托
+      this.audio.ventFizz();
+      this.body.burst(this.player.camera.position, this.player.camera.quaternion);
+      if (!this.ventTold) {
+        this.ventTold = true;
+        this.hud.subtitle('气泡帘。洞底裂隙一直在呼气——\n穿过去的瞬间，上千个小气泡贴着你的皮肤炸开。', '', 6);
+      }
+    }
+
+    // ---- M5-L4 卤水跃层搅动：带速度穿越云面 → 波纹涌动 + 浊雾卷起 ----
+    const lm = this.landmarks;
+    const nearHalo = this.player.position.distanceTo(lm.haloCenter) < lm.haloRadius;
+    if (nearHalo && (this.prevY - lm.haloPlaneY) * (this.player.position.y - lm.haloPlaneY) < 0
+      && Math.abs(this.player.velocity.y) > 0.45) {
+      this.haloStirs++;
+      lm.stirHalo(Math.min(1, Math.abs(this.player.velocity.y) * 0.5));
+      if (!this.haloStirTold) {
+        this.haloStirTold = true;
+        this.hud.subtitle('你搅动了卤水跃层。脚下的"水面"晕开一圈慢波，\n硫化氢的浊雾跟着卷了上来——教科书说：贴着它游，别踢它。', '', 7);
+      }
+    }
+    this.prevY = this.player.position.y;
+
     this.updateParticles(dt, this.player.position);
     const depth01 = Math.min(1, depth / 50);
     this.audio.update(dt, {
@@ -1359,29 +1431,62 @@ export class Game {
     }, 2600);
   }
 
-  /** M4-L6 自然观察手记：0.6s 一次的近距检测，首次靠近某类生物弹一次教学字幕并计数 */
+  /**
+   * M5-L4 自然观察手记：从「走过就弹」升级为主动观察——
+   * 准星对准生物（~11°）且在观察距离内时开始累计注视，1.4s 后触发手记；
+   * 候选 0.35s 重扫一次（probeNearest 便宜但没必要逐帧），注视进度逐帧累计。
+   */
   private updateNatureNotes(dt: number): void {
-    if (this.mode !== 'story' || this.hud.slateOpen) return;
-    this.noteTimer += dt;
-    if (this.noteTimer < 0.6) return;
-    this.noteTimer = 0;
+    if (this.mode !== 'story' || this.hud.slateOpen) {
+      this.gazeCandidate = null;
+      this.gazeNoteKey = null;
+      return;
+    }
     const pp = this.player.position;
-    for (const n of NATURE_NOTES) {
-      if (this.notesSeen.has(n.key)) continue;
-      let p: [number, number, number] | null;
-      if (n.group === 'school') {
-        const pc = this.cave.poolCenter;
-        p = [pc.x, -6, pc.z]; // 鱼群绕天光井光柱（Ecology.fishCenter 同源）
-      } else {
-        p = this.ecology.probeNearest(n.group, pp);
+    const fwd = this.camFwd.set(0, 0, -1).applyQuaternion(this.player.camera.quaternion);
+    this.noteTimer += dt;
+    if (this.noteTimer >= 0.35) {
+      this.noteTimer = 0;
+      this.gazeCandidate = null;
+      const to = new THREE.Vector3();
+      let bestDot = 0.982; // ~11°
+      for (const n of NATURE_NOTES) {
+        if (this.notesSeen.has(n.key)) continue;
+        let p: [number, number, number] | null;
+        if (n.group === 'school') {
+          const pc = this.cave.poolCenter;
+          p = [pc.x, -6, pc.z]; // 鱼群绕天光井光柱（Ecology.fishCenter 同源）
+        } else {
+          p = this.ecology.probeNearest(n.group, pp);
+        }
+        if (!p) continue;
+        to.set(p[0] - pp.x, p[1] - pp.y, p[2] - pp.z);
+        const d = to.length();
+        if (d > n.dist * 2.2) continue; // 观察距离放宽（原贴近距离的 2.2 倍——主动观察不必贴脸）
+        const dot = to.normalize().dot(fwd);
+        if (dot > bestDot) {
+          bestDot = dot;
+          this.gazeCandidate = { key: n.key, pos: new THREE.Vector3(p[0], p[1], p[2]) };
+        }
       }
-      if (!p) continue;
-      const dx = p[0] - pp.x, dy = p[1] - pp.y, dz = p[2] - pp.z;
-      if (dx * dx + dy * dy + dz * dz < n.dist * n.dist) {
+    }
+    // 注视累计（候选变化即清零重计）
+    if (this.gazeCandidate) {
+      if (this.gazeNoteKey !== this.gazeCandidate.key) {
+        this.gazeNoteKey = this.gazeCandidate.key;
+        this.gazeNoteAcc = 0;
+      }
+      this.gazeNoteAcc += dt;
+      if (this.gazeNoteAcc >= 1.4) {
+        const n = NATURE_NOTES.find((x) => x.key === this.gazeNoteKey)!;
         this.notesSeen.add(n.key);
         this.hud.subtitle(n.text, `自然手记 ${this.notesSeen.size}/${NATURE_NOTES.length}`, 7);
-        break; // 一次只弹一条
+        this.gazeCandidate = null;
+        this.gazeNoteKey = null;
       }
+    } else {
+      this.gazeNoteKey = null;
+      this.gazeNoteAcc = 0;
     }
   }
 

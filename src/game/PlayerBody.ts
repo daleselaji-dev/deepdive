@@ -130,6 +130,27 @@ export class PlayerBody {
     this.group.visible = v;
   }
 
+  /** M5-L4 气泡帘穿越演出：视野四周一次性炸开一圈密集小泡（复用呼吸泡粒子池） */
+  burst(camPos: THREE.Vector3, camQuat: THREE.Quaternion): void {
+    const dir = new THREE.Vector3();
+    let emitted = 0;
+    for (let i = 0; i < this.N_BUB && emitted < 14; i++) {
+      if (this.bLife[i] > 0) continue;
+      emitted++;
+      this.bLife[i] = 1 + Math.random() * 0.8;
+      const a = Math.random() * Math.PI * 2;
+      const rr = 0.35 + Math.random() * 0.5;
+      dir.set(Math.cos(a) * rr, (Math.random() - 0.5) * 0.5, -0.4 - Math.random() * 0.6).applyQuaternion(camQuat);
+      this.bPos[i * 3] = camPos.x + dir.x;
+      this.bPos[i * 3 + 1] = camPos.y + dir.y;
+      this.bPos[i * 3 + 2] = camPos.z + dir.z;
+      this.bVel[i * 3] = (Math.random() - 0.5) * 0.5;
+      this.bVel[i * 3 + 1] = 0.8 + Math.random() * 0.7;
+      this.bVel[i * 3 + 2] = (Math.random() - 0.5) * 0.5;
+    }
+    (this.bubbles.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+  }
+
   /**
    * @param exhaling 允许发射气泡（水下且非气穴/水面）
    * @param camPos 相机世界位置（气泡从头侧发射）

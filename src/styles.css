@@ -310,6 +310,22 @@ body {
   pointer-events: none;
   white-space: pre-line;
 }
+/* 准星交互提示：画面中央偏下的一行小字（M5-L4） */
+#prompt {
+  position: absolute;
+  left: 50%; top: 57%;
+  transform: translateX(-50%);
+  z-index: 24;
+  font-family: var(--mono);
+  font-size: clamp(11px, 1.5vmin, 14px);
+  letter-spacing: 0.22em;
+  color: rgba(214, 196, 148, 0.92);
+  text-shadow: 0 1px 3px #000, 0 0 14px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+  white-space: pre;
+}
+
 #subtitle .who {
   display: block;
   font-family: var(--mono);
