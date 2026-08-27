@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { QualityProfile } from './quality';
 import type { Cave } from './Cave';
 import type { Models } from './Models';
-import { glyphTexture, woodTexture } from './textures';
+import { glyphTexture, particleSprite, woodTexture } from './textures';
 import { boulderGeometry, dripstoneGeometry, vnoise3 } from './geo';
 
 /**
@@ -35,6 +35,8 @@ export class Landmarks {
   private brokenLineEnd: THREE.Mesh | null = null;
   /** M4-L8 黑井呼吸幽光（膜+柱）：缓慢脉动的不祥光 */
   private pitBreath: THREE.MeshBasicMaterial[] = [];
+  /** M5-L6 深渊星空（贴壁荧光介形虫群落）：分组相位呼吸 */
+  private starMats: { mat: THREE.PointsMaterial; base: number }[] = [];
   /** M4-L5 距离剔除簇：雾外的地标集合整组隐藏（省 drawcall 与 overdraw；无遮挡剔除的补偿） */
   private cullClusters: { obj: THREE.Object3D; center: THREE.Vector3; r2: number }[] = [];
 
@@ -63,6 +65,56 @@ export class Landmarks {
     this.buildBypassMarks(cave);
     this.buildOrganCurtain(cave, rockMat);
     this.buildGreatArch(cave, rockMat);
+    this.buildAbyssStars(cave);
+  }
+
+  // ---------- M5-L6 深渊星空：贴壁生物荧光点簇（发光介形虫群落） ----------
+  /**
+   * 深渊大厅的「一眼奇观」：黑到看不见壁面，但壁上缀满微弱的青绿光点——
+   * 像一面倒扣的星空。科学原型是无光带介形虫/发光细菌群落（水母荧光的同源呼应）。
+   * fog:false 让它在深渊雾里也远远可见；三组相位差呼吸，星星「在换气」。
+   */
+  private buildAbyssStars(cave: Cave): void {
+    const { t0, t1 } = cave.zoneRange('abyss');
+    const hallC = cave.frameAt(0, (t0 + t1) / 2).p.clone();
+    const rnd = (k: number): number => {
+      const s = Math.sin(k * 127.1 + 311.7) * 43758.5453;
+      return s - Math.floor(s);
+    };
+    const g = new THREE.Group();
+    const tex = particleSprite();
+    const dir = new THREE.Vector3();
+    const mkCluster = (n: number, size: number, color: number, baseOp: number, seed: number): void => {
+      const pos = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        // 星点沿区内 t 随机取管框架，贴上半壁/侧壁（底部是泳道，翻上去）
+        const t = t0 + rnd(seed + i * 3.1) * (t1 - t0);
+        const fr = cave.frameAt(0, t);
+        const r = cave.radiusAt(t);
+        const a = rnd(seed + i * 7.7) * Math.PI * 2;
+        dir.copy(fr.N).multiplyScalar(Math.cos(a)).addScaledVector(fr.B, Math.sin(a));
+        if (dir.y < -0.15) dir.y = -dir.y;
+        dir.normalize();
+        const d = r * (0.86 + rnd(seed + i * 11.3) * 0.1);
+        pos[i * 3] = fr.p.x + dir.x * d;
+        pos[i * 3 + 1] = fr.p.y + dir.y * d;
+        pos[i * 3 + 2] = fr.p.z + dir.z * d;
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      const mat = new THREE.PointsMaterial({
+        map: tex, size, color, transparent: true, opacity: baseOp,
+        blending: THREE.AdditiveBlending, depthWrite: false, fog: false, sizeAttenuation: true,
+      });
+      const pts = new THREE.Points(geo, mat);
+      g.add(pts);
+      this.starMats.push({ mat, base: baseOp });
+    };
+    mkCluster(220, 0.5, 0x6fc4ae, 0.65, 3.7); // 底色星尘：小而密
+    mkCluster(70, 0.9, 0x9fe0cc, 0.85, 17.3); // 亮星：稀疏提神
+    mkCluster(26, 1.5, 0xc4ecd9, 1.0, 29.1); // 一等星：构图锚点
+    this.group.add(g);
+    this.registerCull(g, hallC, 95);
   }
 
   // ---------- M5-L2 新奇观 · Z2 管风琴帷幕：一整面流石幕 + 石柱列 ----------
@@ -73,50 +125,61 @@ export class Landmarks {
     const fr0 = cave.frameAt(0, tBase);
     const anchor = fr0.p.clone();
     // 帷幕贴「水平侧壁」：横向偏移只用 N（B 在水平管段主要指向竖直——角向混入 B 会把柱列吊上天，M5-L2 踩坑）
+    // M5-L6 翻到对侧壁（negate）：原侧壁正是支线 C 蝙蝠气室洞口——帷幕和洞口岩石环撞位互相遮挡
     const side = fr0.N.y > 0.5 || fr0.N.y < -0.5 ? fr0.B.clone() : fr0.N.clone();
     side.y = 0;
-    side.normalize();
+    side.normalize().negate();
     this.organPos.copy(anchor).addScaledVector(side, cave.radiusAt(tBase) * 0.72);
     const g = new THREE.Group();
     const rnd = (k: number): number => {
       const s = Math.sin(k * 91.7 + 33.1) * 43758.5453;
       return s - Math.floor(s);
     };
-    // 沿切向排 13 根柱：同一水平壁侧，高度按「音管」节奏起伏；
+    // 沿切向排 11 根柱：同一水平壁侧，高度按「音管」节奏起伏；
     // 每根柱的地板/天花取该横向偏移处的弦高（贴壁处洞顶更低——用弦高才落地）
-    const PIPES = 13;
+    // M5-L6 重制：旧版 13 根尖锥间距仅 ~0.6m、柱径 >1m——互相嵌成一面糊墙，读作「尖牙」。
+    // 改等距密排「圆柱管」（微锥收 + 上下裙边），间距 ~1.1m / 柱径 ~0.8m，缝隙里透出洗墙光。
+    const PIPES = 11;
     for (let k = 0; k < PIPES; k++) {
-      const tk = tBase + (k - PIPES / 2) * 0.0024;
+      const tk = tBase + (k - (PIPES - 1) / 2) * 0.0042;
       const fr = cave.frameAt(0, tk);
       const r = cave.radiusAt(tk);
       const sideK = fr.N.y > 0.5 || fr.N.y < -0.5 ? fr.B.clone() : fr.N.clone();
       sideK.y = 0;
-      sideK.normalize();
-      const d = r * (0.62 + rnd(k * 5.1) * 0.14);
+      sideK.normalize().negate();
+      // 贴壁 0.72r：0.66r 时基座裙探进泳道走廊（scan BLOCK，M5-L6 踩坑）
+      const d = r * (0.72 + rnd(k * 5.1) * 0.05);
       const base = fr.p.clone().addScaledVector(sideK, d);
       const chord = Math.sqrt(Math.max(1.2, r * r - d * d)); // 该偏移处的半弦高
       const floorY = fr.p.y - chord * 1.02; // 略埋进地板（凹凸位移余量）
       const ceilY = fr.p.y + chord * 1.02;
       // 音管节奏：中央最高（顶天立地的全柱），两侧渐短
-      const rhythm = 1 - Math.abs(k - PIPES / 2) / (PIPES / 2);
-      const full = rhythm > 0.55 || rnd(k * 7.3) > 0.72;
-      const sxz = 0.5 + rnd(k * 9.7) * 0.5 + rhythm * 0.4;
-      if (full) {
-        // 全柱：石笋+石钟乳腰部相接
-        const up = new THREE.Mesh(dripstoneGeometry(4.1 + k, 14, 18), mat);
-        up.scale.set(sxz, (ceilY - floorY) * 0.55, sxz);
-        up.position.set(base.x, floorY, base.z);
-        const down = new THREE.Mesh(dripstoneGeometry(9.3 + k, 14, 18), mat);
-        down.scale.set(sxz * 0.88, (ceilY - floorY) * 0.55, sxz * 0.88);
-        down.rotation.x = Math.PI;
-        down.position.set(base.x, ceilY, base.z);
-        g.add(up, down);
+      const rhythm = 1 - Math.abs(k - (PIPES - 1) / 2) / ((PIPES - 1) / 2);
+      const full = rhythm > 0.62 || rnd(k * 7.3) > 0.78;
+      const H = ceilY - floorY;
+      const pipeR = 0.34 + rhythm * 0.18 + rnd(k * 9.7) * 0.08;
+      const h = full ? H : H * (0.42 + rhythm * 0.3 + rnd(k * 11.1) * 0.18);
+      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(pipeR * 0.84, pipeR, h, 12, 3), mat);
+      pipe.position.set(base.x, floorY + h / 2, base.z);
+      g.add(pipe);
+      // 基座裙：一小段滴水石埋住柱脚（流石在长柱；裙径克制——滴水石几何带宽裙边）
+      const skirtK = new THREE.Mesh(dripstoneGeometry(6.7 + k, 10, 12), mat);
+      skirtK.scale.set(pipeR * 1.6, h * 0.16, pipeR * 1.6);
+      skirtK.position.set(base.x, floorY, base.z);
+      g.add(skirtK);
+      if (!full) {
+        // 短柱顶加尖帽：石笋还在往上长——高低差读出「音阶」
+        const cap = new THREE.Mesh(dripstoneGeometry(4.1 + k, 10, 12), mat);
+        cap.scale.set(pipeR * 1.3, H * 0.1 + rnd(k * 3.3) * 0.5, pipeR * 1.3);
+        cap.position.set(base.x, floorY + h - 0.05, base.z);
+        g.add(cap);
       } else {
-        const h = (ceilY - floorY) * (0.32 + rhythm * 0.35 + rnd(k * 11.1) * 0.15);
-        const up = new THREE.Mesh(dripstoneGeometry(6.7 + k, 12, 16), mat);
-        up.scale.set(sxz * 0.85, h, sxz * 0.85);
-        up.position.set(base.x, floorY, base.z);
-        g.add(up);
+        // 全柱顶裙：与天花相接处的钟乳裙边
+        const top = new THREE.Mesh(dripstoneGeometry(9.3 + k, 10, 12), mat);
+        top.scale.set(pipeR * 1.5, h * 0.14, pipeR * 1.5);
+        top.rotation.x = Math.PI;
+        top.position.set(base.x, ceilY, base.z);
+        g.add(top);
       }
     }
     // 帷幕流石裙：柱列基座连成一条流石台（读作一面墙而非散点），沉入地板
@@ -125,24 +188,26 @@ export class Landmarks {
     const m4 = new THREE.Matrix4();
     const q4 = new THREE.Quaternion();
     for (let k = 0; k < 9; k++) {
-      const tk = tBase + (k - 4.5) * 0.0034;
+      const tk = tBase + (k - 4.5) * 0.0052;
       const fr = cave.frameAt(0, tk);
       const r = cave.radiusAt(tk);
       const sideK = fr.N.y > 0.5 || fr.N.y < -0.5 ? fr.B.clone() : fr.N.clone();
       sideK.y = 0;
-      sideK.normalize();
-      const d = r * 0.68;
+      sideK.normalize().negate();
+      const d = r * 0.74;
       const chord = Math.sqrt(Math.max(1.2, r * r - d * d));
       const base = fr.p.clone().addScaledVector(sideK, d);
       base.y = fr.p.y - chord * 1.0;
-      const s = 1.2 + rnd(k * 4.3) * 0.8;
+      // M5-L6 裙石缩小：之前 s 1.2~2.0 的巨石比音管还大，喧宾夺主
+      const s = 0.65 + rnd(k * 4.3) * 0.45;
       q4.setFromEuler(new THREE.Euler(rnd(k * 6.1) * 0.5, rnd(k * 8.9) * 6.28, rnd(k * 2.9) * 0.5));
-      m4.compose(base, q4, new THREE.Vector3(s * 1.6, s * 0.5, s));
+      m4.compose(base, q4, new THREE.Vector3(s * 1.4, s * 0.45, s));
       skirt.setMatrixAt(k, m4);
     }
     g.add(skirt);
     // 帷幕洗墙光：暖聚光从对侧壁打向柱列 + 冷点光勾轮廓
-    const warm = new THREE.SpotLight(0xd8c9a0, 90, 26, 0.7, 0.75, 1.4);
+    // M5-L6 提亮 90→150：圆柱管的立体感靠缝隙阴影，主光弱了读成平墙
+    const warm = new THREE.SpotLight(0xd8c9a0, 150, 28, 0.72, 0.7, 1.35);
     warm.position.copy(anchor).addScaledVector(side, -cave.radiusAt(tBase) * 0.45).add(new THREE.Vector3(0, 1.2, 0));
     warm.target.position.copy(this.organPos);
     g.add(warm, warm.target);
@@ -200,10 +265,17 @@ export class Landmarks {
       g.add(hang);
     }
     // 界门光：拱后冷幽绿逆光（卤水层的颜色从门里漏出来——回程时反向读作暖门）
-    const gate = new THREE.PointLight(0x4e6e58, 30, 24, 1.5);
-    gate.position.copy(p).addScaledVector(cave.frameAt(0, tArch + 0.004).p.clone().sub(p).normalize(), 6);
+    // M5-L6 提亮：30→110 / 距离 24→32——之前拱只剩一个模糊光斑，剪影读不出「门」
+    const fwd = cave.frameAt(0, tArch + 0.004).p.clone().sub(p).normalize();
+    const gate = new THREE.PointLight(0x4e6e58, 110, 32, 1.4);
+    gate.position.copy(p).addScaledVector(fwd, 6);
     cave.zoneLights.push(gate);
     g.add(gate);
+    // M5-L6 拱面暖光：厅侧一盏低强度暖点光扫亮拱石正面——石面暖、门洞冷，一眼分层
+    const face = new THREE.PointLight(0xc9b184, 75, 24, 1.4);
+    face.position.copy(p).addScaledVector(fwd, -4.5).add(new THREE.Vector3(0, 2.2, 0));
+    cave.zoneLights.push(face);
+    g.add(face);
     this.group.add(g);
     this.registerCull(g, p, 70);
   }
@@ -376,20 +448,32 @@ export class Landmarks {
       meshes[idx % variants.length].setMatrixAt(Math.floor(idx / variants.length), mm);
       idx++;
     };
+    // M5-L6：管风琴帷幕独占一段墙——原生石笋在帷幕 t 段让位，柱列不被杂石淹没
+    const organT = t0 + (t1 - t0) * 0.52;
+    // M5-L6：确定性伪随机替换 Math.random——随机石笋曾间歇性堵死咽喉走廊，
+    // 每次构建位置都不同导致 scan 结果不可复现（时好时坏的「幽灵堵路」）
+    let seed = 4711;
+    const rand = (): number => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed / 0x7fffffff;
+    };
     while (idx < total) {
-      const t = t0 + Math.random() * (t1 - t0) * 1.35; // 溢出到咽喉口
+      const t = t0 + rand() * (t1 - t0) * 1.35; // 溢出到咽喉口
+      if (Math.abs(t - organT) < 0.03) continue;
       const { p: center } = cave.frameAt(0, t);
       const r = cave.radiusAt(t);
-      const isColumn = Math.random() < 0.1;
-      const fromCeil = isColumn ? true : Math.random() < 0.6;
+      // 溢出段（咽喉，r≈2.2m 窄管）：禁柱、贴壁、半尺寸——否则随机石笋会横在泳道上
+      const over = t > t1;
+      const isColumn = !over && rand() < 0.1;
+      const fromCeil = isColumn ? true : rand() < 0.6;
       const posv = center.clone();
       // 避开泳道中轴：水平偏移下限（粗柱贴脸挡视线、也挡玩家路线）
-      const minOff = r * (isColumn ? 0.5 : 0.34);
-      const offAng = Math.random() * Math.PI * 2;
-      const offR = minOff + Math.random() * (r * 0.75 - minOff);
+      const minOff = r * (isColumn ? 0.5 : over ? 0.6 : 0.34);
+      const offAng = rand() * Math.PI * 2;
+      const offR = minOff + rand() * (r * 0.75 - minOff);
       posv.x += Math.cos(offAng) * offR;
       posv.z += Math.sin(offAng) * offR;
-      const s = 0.5 + Math.random() * 1.1;
+      const s = (0.5 + rand() * 1.1) * (over ? 0.5 : 1);
       if (isColumn) {
         // 石柱 = 石笋 + 石钟乳在腰部相接（真实成柱方式，占两个实例槽）
         posv.y = center.y - r * 0.95;
@@ -400,12 +484,12 @@ export class Landmarks {
         m.compose(posc, qDown, new THREE.Vector3(s * 0.82, r * 1.06, s * 0.82));
         place(m);
       } else if (fromCeil) {
-        posv.y = center.y + r * (0.88 + Math.random() * 0.15);
-        m.compose(posv, qDown, new THREE.Vector3(s * 0.8, 2.6 * s * (1.1 + Math.random() * 0.9), s * 0.8));
+        posv.y = center.y + r * (0.88 + rand() * 0.15);
+        m.compose(posv, qDown, new THREE.Vector3(s * 0.8, 2.6 * s * (1.1 + rand() * 0.9), s * 0.8));
         place(m);
       } else {
-        posv.y = center.y - r * (0.85 + Math.random() * 0.18);
-        m.compose(posv, qUp, new THREE.Vector3(s, 2.6 * s * (0.9 + Math.random() * 0.7), s));
+        posv.y = center.y - r * (0.85 + rand() * 0.18);
+        m.compose(posv, qUp, new THREE.Vector3(s, 2.6 * s * (0.9 + rand() * 0.7), s));
         place(m);
       }
     }
@@ -1134,6 +1218,11 @@ export class Landmarks {
       const b = 0.5 + Math.sin(time * 0.7) * 0.5;
       this.pitBreath[0].opacity = 0.1 + b * 0.12;
       this.pitBreath[1].opacity = 0.06 + b * 0.08;
+    }
+    // 深渊星空呼吸：三组相位差闪烁（星星「在换气」）
+    for (let i = 0; i < this.starMats.length; i++) {
+      const s = this.starMats[i];
+      s.mat.opacity = s.base * (0.72 + Math.sin(time * (0.4 + i * 0.27) + i * 2.1) * 0.28);
     }
   }
 }

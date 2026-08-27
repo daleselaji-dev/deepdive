@@ -418,6 +418,7 @@ export class Game {
         this.siltUntil = this.time + seconds;
         if (seconds <= 0) this.envSnap = true;
       },
+      lamp: (v: number) => this.player.lightOn(v),
       state: () => ({
         state: this.state,
         phase: this.phase,

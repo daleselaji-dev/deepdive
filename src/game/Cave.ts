@@ -578,8 +578,15 @@ export class Cave {
     const quat = new THREE.Quaternion();
     const scl = new THREE.Vector3();
     const main = this.paths[0];
+    // M5-L6：管风琴帷幕段（gallery@0.52 ± 带宽）凸石让位——大凸石会把柱列构图搅成乱石堆
+    const gz = this.zoneT.get('gallery')!;
+    const organT = gz.t0 + (gz.t1 - gz.t0) * 0.52;
     for (let i = 0; i < per * variants.length; i++) {
       const t = Math.random();
+      if (Math.abs(t - organT) < 0.03) {
+        i--;
+        continue;
+      }
       const ang = Math.random() * Math.PI * 2;
       const center = main.curve.getPointAt(t);
       const tan = main.curve.getTangentAt(t);

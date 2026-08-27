@@ -21,8 +21,8 @@ const SPOTS = [
   ['z1-shaft-lookup', 'POS', ['shaft', 0.3], [0.5, -6.5, 2.1], [1.2, 4, 0.9], 3400],
   ['z1-shaft-side', 'POS', ['shaft', 0.3], [-3.5, -9.5, -1.9], [4.5, -2, 6.1], 1400],
   ['z2-gallery', 'gallery', 0.5, -1.1, 0.05, 900],
-  // M5-L2 新奇观：回廊管风琴帷幕（轴上望向流石柱列）
-  ['z2-organ', 'MARK', ['gallery', 0.36], 'organ', 0.6, 1400],
+  // M5-L6 管风琴帷幕正面中距：从对侧壁退看整面柱列（手电减光，洗墙暖光当主光）
+  ['z2-organ', 'MARKPOS', ['gallery', 0.52, 'organ'], [1.9, 1.5, 5.0], [0, 1.5, 0], 1600, 12],
   // AXIS 型：[名称, 'AXIS', [区名, 机位比例, 注视比例], [机位偏移xyz], [注视偏移xyz], 等待ms]
   // ——机位与注视点都取管轴上的点（区内比例），再加偏移；解决固定 yaw 怼墙问题（M4-L8）
   ['z3-throat', 'AXIS', ['throat', 0.42, 0.72], [0, 0.4, 0], [0, -0.4, 0], 1000],
@@ -37,7 +37,8 @@ const SPOTS = [
   ['z6-silt', 'SILT', 0, 0, 0, 2200],
   // 塌方走廊：石膏针晶簇+塌方石堆同框（近景巨石会被手电轰白，机位抬高 1.8m）
   ['z7-collapse', 'AXIS', ['collapse', 0.2, 0.48], [0, 1.8, 0], [0, -0.5, 0], 1400],
-  ['z8-abyss', 'abyss', 0.45, -2.5, -0.2, 1300],
+  // M5-L6 深渊星空：上仰看贴壁荧光介形虫群落（黑厅的「倒扣星空」）
+  ['z8-abyss', 'abyss', 0.45, -2.5, 0.5, 1500],
   // MARKPOS 型：[名称, 'MARKPOS', [区名, 区内比例, 地标名], [机位偏移xyz], [注视偏移xyz], 等待ms]
   // 黑井俯瞰：悬停在井口正上方内侧看「呼吸的幽光」（6.8 偏移会卡进井缘巨石）
   ['z8-pit', 'MARKPOS', ['abyss', 0.55, 'pit'], [0.3, 3.4, 3.4], [0, -6, 0], 1400],
@@ -80,7 +81,9 @@ async function main() {
   // SwiftShader 帧率低会触发自适应降档 → 截图变糊，无头截图一律关闭
   await page.evaluate(() => window.__dd.adapt(false));
 
-  for (const [name, zone, frac, yaw, pitch, wait] of SPOTS) {
+  for (const [name, zone, frac, yaw, pitch, wait, lamp] of SPOTS) {
+    // 可选第 7 位 lamp：该镜头的手电强度（近景地标全亮会洗白，M5-L6）
+    await page.evaluate((lv) => window.__dd.lamp(lv), lamp ?? 40);
     if (zone === null) {
       await new Promise((r) => setTimeout(r, wait));
     } else if (zone === 'MARK') {
