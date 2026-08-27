@@ -31,7 +31,8 @@
           <em>开始下潜</em>
           <small>建议戴上耳机 · 桌面 WASD+鼠标 / 手机 双摇杆</small>
         </button>
-        <button id="simmode" type="button">洞潜安全模拟 · 5 项训练</button>
+        <button id="simmode" type="button">洞潜安全模拟 · 6 项训练</button>
+        <p class="title-ethics">本作为虚构作品，人物与事件均属虚构。事故模拟向洞潜安全教育社区致敬，不影射任何真实事故或逝者。</p>
       </div>
       <div class="title-foot">
         <span>寂静天坑事件 · 第一章</span>
@@ -76,6 +77,9 @@
     <!-- 准星交互提示（M5-L4：观察遗物/注视生物） -->
     <div id="prompt" class="hidden"></div>
 
+    <!-- 事故原因链条带（M5-L5：模拟模式顶部教学 HUD） -->
+    <div id="chain" class="hidden"></div>
+
     <!-- 写字板 -->
     <section id="slate" class="hidden">
       <div id="slate-card">
@@ -100,6 +104,7 @@
       <div id="debrief-card">
         <div id="debrief-tag">通过 · PASS</div>
         <div id="debrief-title"></div>
+        <div id="debrief-chain" class="hidden"></div>
         <div id="debrief-body"></div>
         <div id="debrief-actions">
           <button id="debrief-retry" type="button">再来一次</button>

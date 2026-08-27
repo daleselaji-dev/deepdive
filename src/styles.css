@@ -326,6 +326,77 @@ body {
   white-space: pre;
 }
 
+/* 事故原因链条带（M5-L5）：顶部教学 HUD，节点随事故推进点亮 */
+#chain {
+  position: absolute;
+  left: 50%; top: calc(16px + env(safe-area-inset-top, 0px));
+  transform: translateX(-50%);
+  z-index: 24;
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--mono);
+  pointer-events: none;
+  transition: opacity 0.5s ease;
+}
+.chain-node {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  font-size: clamp(10px, 1.3vmin, 12px);
+  letter-spacing: 0.14em;
+  color: rgba(140, 155, 150, 0.4);
+  transition: color 0.6s ease, text-shadow 0.6s ease;
+}
+.chain-node em {
+  font-style: normal;
+  font-size: 0.72em;
+  letter-spacing: 0.3em;
+  opacity: 0.65;
+}
+.chain-node.lit {
+  color: rgba(224, 170, 92, 0.95);
+  text-shadow: 0 0 12px rgba(224, 150, 60, 0.5);
+}
+.chain-node.lit:last-child {
+  color: rgba(226, 96, 74, 0.95);
+  text-shadow: 0 0 14px rgba(200, 52, 31, 0.55);
+}
+.chain-link { color: rgba(140, 155, 150, 0.3); font-size: 11px; }
+
+/* 复盘面板 · 原因链复现 */
+#debrief-chain {
+  margin: 14px 0 4px;
+  padding: 12px 14px;
+  border-left: 2px solid rgba(120, 200, 190, 0.3);
+  background: rgba(120, 200, 190, 0.04);
+  font-family: var(--mono);
+  font-size: clamp(11px, 1.5vmin, 13px);
+  line-height: 2;
+  letter-spacing: 0.06em;
+}
+#debrief-chain .dc-row { color: rgba(140, 155, 150, 0.45); }
+#debrief-chain .dc-row.walked { color: rgba(224, 170, 92, 0.9); }
+#debrief.failed #debrief-chain .dc-row.walked { color: rgba(226, 110, 84, 0.92); }
+#debrief-chain .dc-cut {
+  color: rgba(126, 217, 176, 0.95);
+  margin: 4px 0;
+  padding-left: 14px;
+}
+#debrief-chain .dc-lesson {
+  color: rgba(159, 219, 210, 0.85);
+  margin-top: 8px;
+  border-top: 1px dashed rgba(120, 200, 190, 0.25);
+  padding-top: 8px;
+}
+
+/* 片头伦理声明 */
+.title-ethics {
+  margin-top: 18px;
+  max-width: min(76vw, 560px);
+  font-family: var(--mono);
+  font-size: clamp(9px, 1.15vmin, 11px);
+  letter-spacing: 0.12em;
+  line-height: 1.9;
+  color: rgba(140, 155, 150, 0.5);
+}
+
 #subtitle .who {
   display: block;
   font-family: var(--mono);

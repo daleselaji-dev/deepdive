@@ -33,6 +33,8 @@ export class Hud {
     zoneCn: document.getElementById('zone-cn')!,
     zoneEn: document.getElementById('zone-en')!,
     prompt: document.getElementById('prompt')!,
+    chain: document.getElementById('chain')!,
+    debriefChain: document.getElementById('debrief-chain')!,
   };
   private subTimer: number | null = null;
   private promptText: string | null = null;
@@ -217,13 +219,82 @@ export class Hud {
     this.el.fade.classList.toggle('on', on);
   }
 
-  /** 模拟复盘面板（PASS/FAIL + 教学复盘文本） */
-  showDebrief(pass: boolean, code: string, headline: string, body: string): void {
+  // ---------- M5-L5 事故原因链 HUD ----------
+  /** 场内链条条带：显示 4 节点（诱因→失误→恶化→致命），初始全灭 */
+  chainShow(labels: string[]): void {
+    this.el.chain.innerHTML = '';
+    const stages = ['诱因', '失误', '恶化', '致命'];
+    labels.forEach((label, i) => {
+      if (i > 0) {
+        const link = document.createElement('span');
+        link.className = 'chain-link';
+        link.textContent = '─';
+        this.el.chain.appendChild(link);
+      }
+      const node = document.createElement('span');
+      node.className = 'chain-node';
+      node.dataset.idx = String(i);
+      node.innerHTML = `<em>${stages[i]}</em>${label}`;
+      this.el.chain.appendChild(node);
+    });
+    this.el.chain.classList.remove('hidden');
+  }
+
+  /** 点亮链条节点 0..i（事故正在一步步发生） */
+  chainLight(i: number): void {
+    const nodes = this.el.chain.querySelectorAll<HTMLElement>('.chain-node');
+    nodes.forEach((n, k) => n.classList.toggle('lit', k <= i));
+  }
+
+  chainHide(): void {
+    this.el.chain.classList.add('hidden');
+  }
+
+  /**
+   * 模拟复盘面板（PASS/FAIL + 教学复盘文本 + 原因链复现）。
+   * @param chain 原因链复现：完整链句 + 推进到的节点 + 打断点文案
+   */
+  showDebrief(
+    pass: boolean, code: string, headline: string, body: string,
+    chain?: { full: string[]; reached: number; counter: string },
+  ): void {
     this.el.debriefTag.textContent = pass ? '通过 · PASS' : '未通过 · REVIEW';
     this.el.debrief.classList.toggle('pass', pass);
     this.el.debrief.classList.toggle('failed', !pass);
     this.el.debriefTitle.textContent = `${code} · ${headline}`;
     this.el.debriefBody.textContent = body;
+    // 原因链复现：走过的节点亮、没走到的暗；PASS 在打断点标 ✂
+    if (chain) {
+      this.el.debriefChain.innerHTML = '';
+      chain.full.forEach((s, i) => {
+        const row = document.createElement('div');
+        const walked = i <= chain.reached;
+        row.className = 'dc-row' + (walked ? ' walked' : '');
+        row.textContent = `${walked ? '●' : '○'} ${s}`;
+        this.el.debriefChain.appendChild(row);
+        if (pass && i === chain.reached) {
+          const cut = document.createElement('div');
+          cut.className = 'dc-cut';
+          cut.textContent = `✂ 链条在这里被你打断——${chain.counter}`;
+          this.el.debriefChain.appendChild(cut);
+        }
+      });
+      if (pass && chain.reached < 0) {
+        const cut = document.createElement('div');
+        cut.className = 'dc-cut';
+        cut.textContent = `✂ 链条从未启动——${chain.counter}`;
+        this.el.debriefChain.appendChild(cut);
+      }
+      if (!pass) {
+        const les = document.createElement('div');
+        les.className = 'dc-lesson';
+        les.textContent = `【打断它】${chain.counter}`;
+        this.el.debriefChain.appendChild(les);
+      }
+      this.el.debriefChain.classList.remove('hidden');
+    } else {
+      this.el.debriefChain.classList.add('hidden');
+    }
     this.el.debrief.classList.remove('hidden');
   }
 

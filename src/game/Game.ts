@@ -224,7 +224,8 @@ export class Game {
       setN2: (v) => { this.nitrogen = Math.max(0, Math.min(100, v)); },
       setDrain: (m) => { this.simDrain = m; },
       silt: (s) => { this.siltUntil = this.time + s; },
-      end: (pass, headline, body) => this.endSim(pass, headline, body),
+      end: (pass, headline, body, chainReached) => this.endSim(pass, headline, body, chainReached),
+      chain: (i) => this.hud.chainLight(i),
     });
 
     this.buildParticles();
@@ -840,17 +841,24 @@ export class Game {
     this.startedAt = this.time;
     this.envSnap = true;
     this.sim.start(id);
+    this.hud.chainShow([...SIM_SPECS[id].chain]); // M5-L5 原因链条带
   }
 
-  /** 模拟结束：冻结输入，弹出教学复盘 */
-  private endSim(pass: boolean, headline: string, body: string): void {
+  /** 模拟结束：冻结输入，弹出教学复盘（含原因链复现） */
+  private endSim(pass: boolean, headline: string, body: string, chainReached: number): void {
     this.state = 'ended';
     this.input.disable();
     this.hud.hideDeco();
     this.hud.setGuide(null);
     this.hud.clearSubtitle();
+    this.hud.chainHide();
     this.audio.duckBed(0.25, 2);
-    this.hud.showDebrief(pass, SIM_SPECS[this.currentSimId].code, headline, body);
+    const spec = SIM_SPECS[this.currentSimId];
+    this.hud.showDebrief(pass, spec.code, headline, body, {
+      full: [...spec.chainFull],
+      reached: chainReached,
+      counter: spec.counter,
+    });
     document.exitPointerLock?.();
   }
 

@@ -1,6 +1,7 @@
 /**
- * 洞潜安全模拟回归（docs/WORKFLOW.md §3.2 Loop4）：
- * 用 __dd 钩子驱动五个安全模拟场景，断言复盘面板出现且判定正确。
+ * 洞潜安全模拟回归（docs/WORKFLOW.md §3.2 Loop4 / §3.11 M5-L5）：
+ * 用 __dd 钩子驱动六个安全模拟场景，断言复盘面板出现且判定正确；
+ * SIM-06 覆盖成/败两路并断言原因链复现。
  * 用法：node scripts/sim-test.cjs
  */
 const path = require('path');
@@ -158,15 +159,15 @@ async function main() {
       if (st.step >= 3) break;
       if (i > 30) throw new Error('SIM-04 停住步骤超时：' + JSON.stringify(st));
     }
-    // 第二步：360° 扫灯
-    for (let i = 0; i < 24; i++) {
+    // 第二步：360° 扫灯（无头帧率极低：扫足两圈半 + 收尾等待游戏帧追上）
+    for (let i = 0; i < 44; i++) {
       await page.evaluate((k) => window.__dd.look(k * 0.42, 0), i + 1);
-      await new Promise((r) => setTimeout(r, 260));
+      await new Promise((r) => setTimeout(r, 300));
       const st = await page.evaluate(() => window.__dd.simState());
       if (st.step >= 4) break;
     }
-    const stepNow = await page.evaluate(() => window.__dd.simState());
-    if (stepNow.step < 4) throw new Error('SIM-04 扫灯未完成：' + JSON.stringify(stepNow));
+    const stepNow = await waitStep(page, 4, 12).catch(() => null);
+    if (!stepNow) throw new Error('SIM-04 扫灯未完成：' + JSON.stringify(await page.evaluate(() => window.__dd.simState())));
     // 第三步：向特奥汇合
     await page.evaluate(() => {
       const b = window.__dd.buddy();
@@ -214,8 +215,69 @@ async function main() {
     await page.close();
   }
 
+  // ---------- SIM-06 断线：定点→弧扫→接线撤离 → PASS ----------
+  {
+    const page = await newPage(browser);
+    await startSim(page, 5);
+    await waitStep(page, 1);
+    // 游到断口（近端断头）
+    await page.evaluate(() => {
+      const st = window.__dd.simState();
+      window.__dd.zone('collapse', 0.35);
+      window.__dd.move(st.breakNear[0], st.breakNear[1], st.breakNear[2]);
+    });
+    await waitStep(page, 2);
+    // 第一步：原地定点（无输入即静止）
+    await waitStep(page, 3);
+    // 第二步：弧形扫描（同 SIM-04：扫足 + 收尾等待）
+    for (let i = 0; i < 44; i++) {
+      await page.evaluate((k) => window.__dd.look(k * 0.42, 0), i + 1);
+      await new Promise((r) => setTimeout(r, 300));
+      const st = await page.evaluate(() => window.__dd.simState());
+      if (st.step >= 4) break;
+    }
+    const stepNow = await waitStep(page, 4, 12).catch(() => null);
+    if (!stepNow) throw new Error('SIM-06 弧扫未完成：' + JSON.stringify(await page.evaluate(() => window.__dd.simState())));
+    // 第三步：摸到远端断头接线
+    await page.evaluate(() => {
+      const st = window.__dd.simState();
+      window.__dd.move(st.breakFar[0], st.breakFar[1], st.breakFar[2]);
+    });
+    await waitStep(page, 5);
+    // 撤离：回到塌方段入口
+    await page.evaluate(() => window.__dd.zone('collapse', 0.05));
+    const d = await waitDebrief(page, 30000);
+    if (!d.pass) throw new Error('SIM-06 期望 PASS：' + JSON.stringify(d));
+    // 原因链复现面板：PASS 应有打断点标记
+    const cut = await page.evaluate(() => document.querySelector('#debrief-chain .dc-cut')?.textContent ?? '');
+    if (!cut.includes('打断')) throw new Error('SIM-06 复盘缺少原因链打断点：' + cut);
+    console.log('  ✓ SIM-06 断线（定点弧扫接线 PASS + 复盘链路）');
+    await page.close();
+  }
+
+  // ---------- SIM-06b 断线：离点乱找 → FAIL（原因链走到致命点） ----------
+  {
+    const page = await newPage(browser);
+    await startSim(page, 5);
+    await waitStep(page, 1);
+    await page.evaluate(() => {
+      const st = window.__dd.simState();
+      window.__dd.zone('collapse', 0.35);
+      window.__dd.move(st.breakNear[0], st.breakNear[1], st.breakNear[2]);
+    });
+    await waitStep(page, 2);
+    // 违反协议：不定点，直接乱找（离开断头 >18m —— 传送到深渊入口约 29m 处）
+    await page.evaluate(() => window.__dd.zone('abyss', 0.12));
+    const d = await waitDebrief(page, 40000);
+    if (d.pass) throw new Error('SIM-06b 期望 FAIL：' + JSON.stringify(d));
+    const chain = await page.evaluate(() => window.__dd.simState().chain);
+    if (chain < 3) throw new Error('SIM-06b 原因链未走到致命点：chain=' + chain);
+    console.log('  ✓ SIM-06b 断线（乱找 FAIL + 链条走满）');
+    await page.close();
+  }
+
   await browser.close();
-  console.log('→ 五个安全模拟场景全部通过');
+  console.log('→ 六个安全模拟场景全部通过（SIM-06 含成/败两路）');
 }
 
 main().catch((e) => {
